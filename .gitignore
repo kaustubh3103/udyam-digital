@@ -1,0 +1,6 @@
+node_modules/
+dist/
+dist-single/
+data-raw/.ocr_tmp.png
+.DS_Store
+data-raw/
