@@ -231,6 +231,6 @@ function describePlan(st, d) {
 function branchText(p) {
   const names = PRODUCT_NAMES.en;
   const list = (items) => items.map((i) => `${names[i.id]} × ${i.qty}`).join(", ");
-  return p.branches.map((b, i) => `${(b.name || "").trim() || `Branch ${i + 1}`}: ${list(b.items)} = ₹${b.monthly}/month`).join(" | ")
+  return p.branches.map((b, i) => `${(b.name || "").trim() || `Branch ${i + 1}`} (${b.size || "regular"}): ${list(b.items)} = ₹${b.monthly}/month`).join(" | ")
     + ` | Shared by all branches: ${list(p.shared.items) || "nothing"} = ₹${p.shared.monthly}/month | Total ₹${p.monthly}/month`;
 }

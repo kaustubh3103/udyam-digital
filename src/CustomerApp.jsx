@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Phone, ArrowLeft, Volume2, Lock, Camera, Radio, Sparkles, Plus, IndianRupee, Star, Check, Wrench } from "lucide-react";
+import { Phone, ArrowLeft, Volume2, Lock, Camera, Radio, Sparkles, Plus, IndianRupee, Star, Check, Wrench, Pencil } from "lucide-react";
 import { LANGS, makeT, productName, bizLabel, VOICE_KEYWORDS, NEED_KEYWORDS } from "./i18n.js";
 import { Opt, Chip, Note, Sheet, Mic, speak, matchKeywords } from "./ui.jsx";
 import { BizIcon, NeedIcon, Tile } from "./icons.jsx";
@@ -7,13 +7,16 @@ import Chat from "./Chat.jsx";
 import { GENERIC_TYPES } from "./ai/classify.js";
 import { catalogue, gstReg, udyamReg, reference, inr, tierOfCity, segOfType, fibreAvailable, store, maskGstin } from "./data.js";
 import { EMP_BANDS, SITE_BANDS, needsFor, makeCtx, recommend, editBundle } from "./engine/advisor.js";
-import { BAND_RANGE, fitBranches, splitBase, priceBranches, priceOrder, isBranchItem, addableProducts } from "./engine/branches.js";
-import { BranchCard, SharedCard, AddServiceSheet, MyBranches } from "./Branches.jsx";
+import { BAND_RANGE, fitBranches, splitBase, priceBranches, priceOrder, isBranchItem, addableProducts, BRANCH_SERVICES } from "./engine/branches.js";
+import { BranchCard, AddServiceSheet, MyBranches, BranchesStep } from "./Branches.jsx";
 import { validateGstinFormat, lookupGstin, findUdyamByBusiness, lookupUdyam, proprietorOf, sharpnessFromImageData, BLUR_THRESHOLD } from "./engine/kyc.js";
 
-const FLOW = ["biz", "gst", "size", "loc", "now", "needs", "plan", "consent", "kyc", "slot"];
+const FLOW = ["biz", "gst", "size", "loc", "now", "needs", "branches", "plan", "consent", "kyc", "slot"];
+/** The screens this owner sees: "Your branches" only for a business with more than one branch. */
+export const flowFor = (s) => FLOW.filter((st) => st !== "branches" || (BAND_RANGE[s.siteBand]?.[1] ?? 1) >= 2);
 const SAVE_KEY = "udyam-digital:session";
 const QTY_EDITABLE = new Set(["P07", "P08", "P12", "P16", "P19", "P20", "P23", "P24", "P25"]);
+const lockReasonT = (t) => (r) => !r ? "" : r.code === "employees" || r.code === "sites" ? t("lockReason." + r.code, r.min) : t("lockReason." + r.code);
 const NO_EDITS = () => ({ removed: [], qty: {}, added: [] });
 const SPEND_MID = { s1: 700, s2: 2000, s3: 6500, s4: 15000 };
 const SAMPLE_GSTINS = [
@@ -68,6 +71,7 @@ export function doneFor(step, s, bundle) {
     loc: !!s.city && s.fibreOk !== null,
     now: true,
     needs: true,
+    branches: !!bundle && bundle.violations.length === 0,
     plan: !!bundle && bundle.violations.length === 0,
     consent: s.consent.req,
     kyc: kycReady(s),
@@ -78,8 +82,9 @@ export function doneFor(step, s, bundle) {
 /** First screen up to `target` that still needs an answer. */
 export function resolveStep(target, s) {
   const { bundle } = derive(s);
-  const idx = FLOW.indexOf(target);
-  for (let i = 0; i < idx; i++) if (!doneFor(FLOW[i], s, bundle)) return FLOW[i];
+  const flow = flowFor(s);
+  const idx = flow.indexOf(target);
+  for (let i = 0; i < idx; i++) if (!doneFor(flow[i], s, bundle)) return flow[i];
   return target;
 }
 
@@ -151,12 +156,13 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
     locked: rec?.locked.length ?? 0, monthly: bundle?.monthly ?? 0, udyam: !!s.kyc.udyam };
   useEffect(() => { onStep?.(info); }, [JSON.stringify(info)]);
 
-  const stepIdx = FLOW.indexOf(s.step);
+  const flow = flowFor(s);
+  const stepIdx = flow.indexOf(s.step);
   const canNext = doneFor(s.step, s, bundle);
 
   const next = () => {
     if (s.step === "slot") return placeOrder();
-    const i = FLOW.indexOf(s.step);
+    const i = flow.indexOf(s.step);
     if (s.step === "gst" && s.gst) {
       const city = s.gst.city && reference.cities.find((c) => c.city === s.gst.city) ? s.gst.city : s.city;
       up({ city });
@@ -166,13 +172,13 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
       const u = findUdyamByBusiness(s.gst.tradeName, s.gst.city, udyamReg);
       if (u) up((p) => ({ kyc: { ...p.kyc, udyam: u } }));
     }
-    go(FLOW[i + 1]);
+    go(flow[i + 1]);
   };
   const back = () => {
-    const i = FLOW.indexOf(s.step);
+    const i = flow.indexOf(s.step);
     if (s.step === "otp") return go("phone");
     if (i <= 0) return go(s.step === "biz" ? "otp" : "welcome");
-    go(FLOW[i - 1]);
+    go(flow[i - 1]);
   };
 
   function placeOrder() {
@@ -287,6 +293,7 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
     ),
 
     needs: <NeedsScreen s={s} up={up} t={t} seg={seg} sitesMin={sitesMin} />,
+    branches: bundle && <BranchesStep s={s} up={up} t={t} ctx={ctx} split={split} branches={branches} bundle={bundle} lockReason={lockReasonT(t)} />,
     plan: bundle && <PlanScreen s={s} up={up} t={t} rec={rec} bundle={bundle} ctx={ctx} split={split} branches={branches} businessName={businessName} />,
     consent: <ConsentScreen s={s} up={up} t={t} />,
     kyc: <KycScreen s={s} up={up} t={t} setSheet={setSheet} />,
@@ -323,8 +330,8 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
       {s.partner && <div className="partner-band">{t("partnerBanner", s.partner.name, s.partner.code)}</div>}
       {stepIdx >= 0 && (
         <div className="progress">
-          <span className="small muted num">{t("stepOf", stepIdx + 1, FLOW.length)}</span>
-          <div className="progress-bar" aria-hidden="true"><span style={{ width: `${((stepIdx + 1) / FLOW.length) * 100}%` }} /></div>
+          <span className="small muted num">{t("stepOf", stepIdx + 1, flow.length)}</span>
+          <div className="progress-bar" aria-hidden="true"><span style={{ width: `${((stepIdx + 1) / flow.length) * 100}%` }} /></div>
           <button className="icon-btn" onClick={() => setSheet("callback")}><Phone size={15} /> <span className="small">{t("talkToPerson")}</span></button>
         </div>
       )}
@@ -551,7 +558,7 @@ function NeedsScreen({ s, up, t, seg, sitesMin }) {
 }
 
 // ---------------------------------------------------------------- plan
-function PlanScreen({ s, up, t, rec, bundle, ctx, split, branches, businessName }) {
+function PlanScreen({ s, up, t, rec, bundle, ctx, branches, businessName }) {
   const [faq, setFaq] = useState(null);
   const [adding, setAdding] = useState(false);
   const base = rec.tiers[s.tier];
@@ -560,9 +567,9 @@ function PlanScreen({ s, up, t, rec, bundle, ctx, split, branches, businessName 
   const removed = new Set(edits.removed);
   const added = edits.added || [];
   const linkId = base.items[0].id;
-  const [lo, hi] = BAND_RANGE[s.siteBand] ?? [1, 1];
-  const multi = hi >= 2;
-  const rows = [...base.items, ...added.filter((a) => !base.items.some((i) => i.id === a.id))];
+  const multi = (BAND_RANGE[s.siteBand]?.[1] ?? 1) >= 2;
+  // with branches, branch items are set branch by branch; this list holds what the whole business shares
+  const rows = [...base.items, ...added.filter((a) => !base.items.some((i) => i.id === a.id))].filter((it) => !multi || !isBranchItem(it.id));
 
   const setTier = (tier) => up({ tier, edits: NO_EDITS() });
   const buildOwn = () => up({ tier: "basic", edits: { ...NO_EDITS(), custom: true, removed: rec.tiers.basic.items.slice(1).map((i) => i.id) } });
@@ -580,16 +587,13 @@ function PlanScreen({ s, up, t, rec, bundle, ctx, split, branches, businessName 
       : { edits: { ...p.edits, added: [...(p.edits.added || []), { id, qty, why: { key: "added" } }] } });
     setAdding(false);
   };
-  const setBranches = (fn) => up((p) => ({ branches: fn(fitBranches(p.branches, ctx.sites)) }));
-  const editBranch = (key, fn) => setBranches((list) => list.map((b) => (b.key === key ? fn(b) : b)));
-  const setCount = (n) => up((p) => ({ branches: fitBranches(p.branches, Math.max(lo, Math.min(hi, n))) }));
 
   const whyText = (w) => w.key === "need" ? t("why.need", t("needs." + w.need)) : t("why." + w.key);
   const hasBackup = bundle.items.some((i) => i.id === "P09");
   const lockReason = (r) => r.code === "employees" || r.code === "sites" ? t("lockReason." + r.code, r.min) : t("lockReason." + r.code);
   const summary = `${custom ? t("buildOwn") : t("tiers")[s.tier]}. ${inr(bundle.monthly)} ${t("perMonth")}. ` + bundle.items.map((i) => productName(s.lang, i.id) + (i.qty > 1 ? ` × ${i.qty}` : "")).join(", ");
   const spendMid = SPEND_MID[s.spend];
-  const addable = adding ? addableProducts(bundle, ctx, catalogue).filter((x) => !base.items.some((i) => i.id === x.product.id && !removed.has(x.product.id))) : [];
+  const addable = adding ? addableProducts(bundle, ctx, catalogue).filter((x) => !base.items.some((i) => i.id === x.product.id && !removed.has(x.product.id)) && !(multi && BRANCH_SERVICES.includes(x.product.id))) : [];
 
   return (
     <div className="screen">
@@ -623,7 +627,7 @@ function PlanScreen({ s, up, t, rec, bundle, ctx, split, branches, businessName 
       <button className="mic" onClick={() => speak(summary, s.lang)}><Volume2 size={16} /> {t("listen")}</button>
 
       <div className="group" style={{ gap: 8 }}>
-        <span className="group-label">{t("whatsIncluded")}</span>
+        <span className="group-label">{multi ? t("sharedTitle") : t("whatsIncluded")}</span>
         <div className="items">
           {rows.map((it) => {
             const off = removed.has(it.id);
@@ -661,22 +665,10 @@ function PlanScreen({ s, up, t, rec, bundle, ctx, split, branches, businessName 
       {multi && (
         <div className="group" style={{ gap: 8 }}>
           <span className="group-label">{t("branchesTitle")}</span>
-          <span className="small sub">{t("branchesSub")}</span>
-          <div className="branch-count">
-            <span>{t("branchCount")}</span>
-            <span className="stepper" aria-label={t("branchCount")}>
-              <button onClick={() => setCount(ctx.sites - 1)} disabled={ctx.sites <= lo} aria-label="−">−</button>
-              <span className="num" id="branchcount">{ctx.sites}</span>
-              <button onClick={() => setCount(ctx.sites + 1)} disabled={ctx.sites >= hi} aria-label="+">+</button>
-            </span>
-          </div>
           {bundle.branches.map((b, i) => (
-            <BranchCard key={b.key} t={t} lang={s.lang} raw={branches[i]} priced={b} defaults={split.perBranch} index={i} open={i === 0}
-              onRename={(v) => editBranch(b.key, (x) => ({ ...x, name: v }))}
-              onQty={(id, q) => editBranch(b.key, (x) => ({ ...x, qty: { ...x.qty, [id]: q } }))}
-              onToggle={(id) => editBranch(b.key, (x) => ({ ...x, off: x.off?.includes(id) ? x.off.filter((y) => y !== id) : [...(x.off || []), id] }))} />
+            <BranchCard key={b.key} t={t} lang={s.lang} raw={branches[i]} priced={b} index={i} />
           ))}
-          <SharedCard t={t} lang={s.lang} shared={bundle.shared} />
+          <button className="btn ghost small" style={{ alignSelf: "flex-start" }} onClick={() => up({ step: "branches" })}><Pencil size={14} /> {t("brChange")}</button>
         </div>
       )}
 
@@ -918,7 +910,7 @@ function TrackScreen({ s, up, t, bundle, onNew, onLeadEvent }) {
           <div className="wa">{msgs.map((m) => <div key={m.k} className="wa-msg">{m.text}</div>)}</div>
         </div>
       )}
-      <MyBranches s={s} up={up} t={t} onChanged={(o) => onLeadEvent?.({ kind: "orderUpdate", id: o.id, monthly: priceOrder(o, catalogue).monthly, branches: o.branches.length })} />
+      <MyBranches s={s} up={up} t={t} lockReason={lockReasonT(t)} onChanged={(o) => onLeadEvent?.({ kind: "orderUpdate", id: o.id, monthly: priceOrder(o, catalogue).monthly, branches: o.branches.length })} />
       <div className="footer-row">
         {p < 4 ? <button className="btn ghost" style={{ flex: 1 }} onClick={() => up((x) => ({ order: { ...x.order, progress: x.order.progress + 1 } }))}>{t("simulate")}</button>
           : <Note kind="ok">{t("done")}</Note>}

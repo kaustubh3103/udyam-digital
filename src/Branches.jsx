@@ -1,10 +1,11 @@
 import React, { useState } from "react";
-import { Store, Lock, Plus, Check, Layers, ChevronDown } from "lucide-react";
+import { Store, Lock, Plus, Check, Layers, ChevronDown, Copy } from "lucide-react";
 import { productName } from "./i18n.js";
 import { Chip, Note, Sheet } from "./ui.jsx";
 import { Tile } from "./icons.jsx";
 import { catalogue, inr } from "./data.js";
-import { LINK_IDS, BRANCH_QTY, priceOrder, newBranch, branchItems } from "./engine/branches.js";
+import { BRANCH_QTY, SIZES, priceOrder, newBranch, branchItems, toggleAt, sameAs as copyFrom, fitBranches, BAND_RANGE } from "./engine/branches.js";
+import { fibreAvailable } from "./data.js";
 
 export const branchLabel = (t, b, i) => (b?.name || "").trim() || t("branchN", (i ?? b?.index ?? 0) + 1);
 
@@ -20,13 +21,16 @@ function Stepper({ t, value, onChange }) {
 
 /**
  * One branch: its name, what is installed there and what it costs.
- * `raw` is the owner's choices for the branch ({ key, name, qty, off }), `priced` the same branch after the rules ran,
- * `defaults` the plan's per-branch items. Without handlers the card is read-only.
+ * `raw` is the owner's choices for the branch, `priced` the same branch after the rules ran (with `rows`: every
+ * item that could be there). Without handlers the card is read-only. With `onSize`/`onPin` it is the full editor
+ * used on the "Your branches" step.
  */
-export function BranchCard({ t, lang, raw, priced, defaults, index, status, open: openInit, onRename, onQty, onToggle }) {
+export function BranchCard({ t, lang, raw, priced, index, status, open: openInit, onRename, onQty, onToggle,
+  onSize, onPin, sameAs, onSameAs, lockReason }) {
   const [open, setOpen] = useState(!!openInit);
   const editable = !!onToggle;
-  const off = new Set(raw.off || []);
+  const rows = editable ? priced.rows : priced.rows.filter((r) => r.on);
+  const pinDone = (raw.pin || "").length === 6;
   return (
     <div className={"branch" + (open ? " open" : "")} data-branch={raw.key}>
       <button className="branch-head" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -34,6 +38,7 @@ export function BranchCard({ t, lang, raw, priced, defaults, index, status, open
         <span className="branch-name">
           <strong>{branchLabel(t, raw, index)}</strong>
           {status && <span className={"pill " + (status === "live" ? "ok" : "info")}>{t("branchStatus." + status)}</span>}
+          {!status && onSize && <span className="small muted">{t("size." + (raw.size || "regular"))}</span>}
         </span>
         <span className="num branch-amt">{t("branchCost", inr(priced.monthly))}</span>
         <ChevronDown size={18} className="chev" aria-hidden="true" />
@@ -44,20 +49,41 @@ export function BranchCard({ t, lang, raw, priced, defaults, index, status, open
             <input className="input" aria-label={t("branchNamePh")} placeholder={t("branchNamePh")} value={raw.name}
               onChange={(e) => onRename(e.target.value.slice(0, 40))} />
           )}
+          {onSameAs && sameAs && (
+            <button className="btn ghost small same-as" onClick={onSameAs}><Copy size={14} /> {t("brSame", sameAs)}</button>
+          )}
+          {onSize && (
+            <div className="group" style={{ gap: 6 }}>
+              <span className="group-label">{t("brSize")}</span>
+              <div className="chips">
+                {SIZES.map((z) => <Chip key={z} pressed={(raw.size || "regular") === z} onClick={() => onSize(z)}>{t("size." + z)}</Chip>)}
+              </div>
+            </div>
+          )}
+          {onPin && (
+            <div className="group" style={{ gap: 6 }}>
+              <span className="group-label">{t("brPin")}</span>
+              <input className="input num pin-input" inputMode="numeric" maxLength={6} placeholder={t("brPinPh")} value={raw.pin || ""}
+                onChange={(e) => onPin(e.target.value.replace(/\D/g, "").slice(0, 6))} />
+              {pinDone ? <span className={"small " + (raw.fibreOk ? "ok-text" : "warn-text")}>{raw.fibreOk ? t("brFibreYes") : t("brFibreNo")}</span>
+                : <span className="small muted">{t("brPinLater")}</span>}
+            </div>
+          )}
+          {onSize && <span className="group-label">{t("brServices")}</span>}
           <div className="items">
-            {defaults.map((d) => {
-              const isOff = off.has(d.id) && !LINK_IDS.includes(d.id);
-              const cur = priced.items.find((x) => x.id === d.id);
-              const qty = raw.qty?.[d.id] ?? d.qty;
+            {rows.map((r) => {
+              const cur = priced.items.find((x) => x.id === r.id);
+              const locked = editable && !r.ok;
               return (
-                <div key={d.id} className={"item" + (isOff ? " off" : "")}>
-                  <span className="nm">{productName(lang, d.id)}{qty > 1 && !(editable && BRANCH_QTY.has(d.id)) ? ` × ${qty}` : ""}</span>
-                  <span className="amt">{isOff ? "—" : inr(cur?.monthly ?? 0)}</span>
-                  {isOff && <span className="why">{t("branchOff")}</span>}
-                  {editable && !LINK_IDS.includes(d.id) && (
+                <div key={r.id} className={"item" + (editable && !r.on ? " off" : "")} data-item={r.id}>
+                  <span className="nm">{productName(lang, r.id)}{r.qty > 1 && !(editable && r.on && BRANCH_QTY.has(r.id)) ? ` × ${r.qty}` : ""}</span>
+                  <span className="amt">{r.on ? inr(cur?.monthly ?? 0) : locked ? <Lock size={14} aria-label="locked" /> : "—"}</span>
+                  {r.fixed && r.why?.key && r.why.key !== "link" && <span className="why">{t("why." + r.why.key)}</span>}
+                  {locked && <span className="why">{lockReason ? lockReason(r.reason) : ""}</span>}
+                  {editable && !r.fixed && !locked && (
                     <div className="ctl">
-                      {BRANCH_QTY.has(d.id) && !isOff && <Stepper t={t} value={qty} onChange={(q) => onQty(d.id, Math.max(1, Math.min(50, q)))} />}
-                      <button className="tiny-btn" onClick={() => onToggle(d.id)}>{isOff ? t("add") : t("remove")}</button>
+                      {BRANCH_QTY.has(r.id) && r.on && <Stepper t={t} value={r.qty} onChange={(q) => onQty(r.id, Math.max(1, Math.min(50, q)))} />}
+                      <button className={r.on ? "tiny-btn" : "btn ghost small"} onClick={() => onToggle(r.id)}>{r.on ? t("remove") : <><Plus size={14} /> {t("addBtn")}</>}</button>
                     </div>
                   )}
                 </div>
@@ -139,7 +165,7 @@ function SpendBar({ t, plan }) {
  * After booking: every branch, its services, its cost and status, the combined bill, and "Add a branch".
  * Works from the order snapshot so the booked plan never shifts under the owner.
  */
-export function MyBranches({ s, up, t, onChanged }) {
+export function MyBranches({ s, up, t, onChanged, lockReason }) {
   const order = s.order;
   const [adding, setAdding] = useState(false);
   const [done, setDone] = useState(null);
@@ -170,11 +196,11 @@ export function MyBranches({ s, up, t, onChanged }) {
       </div>
       {done && <Note kind="ok">{done}</Note>}
       {plan.branches.map((b, i) => (
-        <BranchCard key={b.key} t={t} lang={s.lang} raw={order.branches[i]} priced={b} defaults={order.split.perBranch} index={i}
-          status={statusOf(order.branches[i])} open={!many}
+        <BranchCard key={b.key} t={t} lang={s.lang} raw={order.branches[i]} priced={b} index={i}
+          status={statusOf(order.branches[i])} open={!many} lockReason={lockReason}
           onRename={(v) => edit(b.key, (x) => ({ ...x, name: v }))}
           onQty={(id, q) => edit(b.key, (x) => ({ ...x, qty: { ...x.qty, [id]: q } }))}
-          onToggle={(id) => edit(b.key, (x) => ({ ...x, off: x.off?.includes(id) ? x.off.filter((y) => y !== id) : [...(x.off || []), id] }))} />
+          onToggle={(id) => edit(b.key, (x) => toggleAt(x, id, order.split))} />
       ))}
       <SharedCard t={t} lang={s.lang} shared={plan.shared} />
       <button className="btn ghost" onClick={() => { setAdding(true); setDone(null); }}><Plus size={16} /> {t("addBranch")}</button>
@@ -198,7 +224,8 @@ function AddBranchSheet({ t, lang, order, onAdd, onClose }) {
   const trial = { ...order, branches: [...order.branches, newBranch(name, from, order.branches)] };
   trial.ctx = { ...order.ctx, sites: trial.branches.length };
   const now = priceOrder(order, catalogue), after = priceOrder(trial, catalogue);
-  const items = branchItems(order.split, from);
+  const byId = Object.fromEntries(catalogue.map((p) => [p.id, p]));
+  const items = branchItems(order.split, from, { ...order.ctx, sites: trial.branches.length }, byId);
   return (
     <Sheet title={t("addBranch")} onClose={onClose}>
       <p className="small sub">{t("addBranchSub")}</p>
@@ -217,5 +244,45 @@ function AddBranchSheet({ t, lang, order, onAdd, onClose }) {
       <Note kind="info">{t("addBranchCost", inr(after.monthly - now.monthly))}</Note>
       <button className="btn" disabled={after.violations.length > 0} onClick={() => onAdd(name, from)}><Check size={16} /> {t("addBranchBtn")}</button>
     </Sheet>
+  );
+}
+
+/**
+ * The "Your branches" step: for each branch its name, size, pincode and services. Branch 1 starts from the owner's
+ * answers; every other branch starts as a copy of branch 1, so the owner changes only what is different.
+ */
+export function BranchesStep({ s, up, t, ctx, split, branches, bundle, lockReason }) {
+  const [lo, hi] = BAND_RANGE[s.siteBand] ?? [1, 1];
+  const set = (fn) => up((p) => ({ branches: fn(fitBranches(p.branches, ctx.sites)) }));
+  const edit = (key, fn) => set((list) => list.map((b) => (b.key === key ? fn(b) : b)));
+  const setCount = (n) => up((p) => ({ branches: fitBranches(p.branches, Math.max(lo, Math.min(hi, n))) }));
+  const first = branches[0];
+  return (
+    <div className="screen">
+      <div className="screen-head"><h1>{t("brTitle")}</h1><p className="sub">{t("brSub")}</p></div>
+      <div className="branch-count">
+        <span>{t("branchCount")}</span>
+        <span className="stepper" aria-label={t("branchCount")}>
+          <button onClick={() => setCount(ctx.sites - 1)} disabled={ctx.sites <= lo} aria-label="−">−</button>
+          <span className="num" id="branchcount">{ctx.sites}</span>
+          <button onClick={() => setCount(ctx.sites + 1)} disabled={ctx.sites >= hi} aria-label="+">+</button>
+        </span>
+      </div>
+      {bundle.branches.map((b, i) => (
+        <BranchCard key={b.key} t={t} lang={s.lang} raw={branches[i]} priced={b} index={i} open={i === 0} lockReason={lockReason}
+          onRename={(v) => edit(b.key, (x) => ({ ...x, name: v }))}
+          onSize={(z) => edit(b.key, (x) => ({ ...x, size: z, qty: {} }))}
+          onPin={(v) => edit(b.key, (x) => ({ ...x, pin: v, fibreOk: v.length === 6 ? fibreAvailable(v) : null }))}
+          onQty={(id, q) => edit(b.key, (x) => ({ ...x, qty: { ...x.qty, [id]: q } }))}
+          onToggle={(id) => edit(b.key, (x) => toggleAt(x, id, split))}
+          sameAs={i > 0 ? branchLabel(t, first, 0) : null}
+          onSameAs={i > 0 ? () => edit(b.key, (x) => copyFrom(x, first)) : null} />
+      ))}
+      <SharedCard t={t} lang={s.lang} shared={bundle.shared} />
+      <Note kind="info">{t("brSharedSub")}</Note>
+      <div className="panel" style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+        <strong>{t("combinedBill")}</strong><strong className="num" id="brtotal">{inr(bundle.monthly)}{t("perMonthShort")}</strong>
+      </div>
+    </div>
   );
 }

@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeCtx, recommend, verifyBundle, empBandOf, siteBandOf, editBundle, checkEligibility, EMP_BANDS, NEEDS } from "../src/engine/advisor.js";
-import { splitBase, priceBranches, fitBranches, priceOrder, newBranch, addableProducts, BAND_RANGE, BRANCH_QTY, LINK_IDS, isBranchItem } from "../src/engine/branches.js";
+import { splitBase, priceBranches, fitBranches, priceOrder, newBranch, addableProducts, sameAs, BAND_RANGE, BRANCH_QTY, BRANCH_SERVICES, LINK_IDS, isBranchItem } from "../src/engine/branches.js";
 import { validateApplicant, validateGstinFormat } from "../src/engine/kyc.js";
 import { validateUpdates, validateReply, rupeeAmounts, allowedAmounts, checkPrices } from "../src/ai/assistant.js";
 import { validateClassification, keywordClassify, buildClassifyPrompt } from "../src/ai/classify.js";
@@ -119,7 +119,7 @@ const types = reference.businessTypes;
   let rnd = 7; const rand = () => ((rnd = (rnd * 1103515245 + 12345) % 2147483648) / 2147483648);
   const pick = (a) => a[Math.floor(rand() * a.length)];
   const segs = ["micro", "prof", "multi", "mfg"];
-  let plans = 0, viol = 0, sumBad = 0, priceBad = 0, compatBad = 0, addBad = 0, lockedAddAllowed = 0;
+  let plans = 0, viol = 0, sumBad = 0, priceBad = 0, compatBad = 0, addBad = 0, lockedAddAllowed = 0, linkBad = 0, sizeBad = 0;
   const byId = Object.fromEntries(catalogue.map((p) => [p.id, p]));
   for (let n = 0; n < 4000; n++) {
     const siteBand = pick(["1", "2-3", "4-10", "10+"]);
@@ -133,6 +133,7 @@ const types = reference.businessTypes;
     // owner edits: build-your-own sometimes, remove some, add eligible extras
     const custom = rand() < 0.3;
     const edits = { removed: custom ? rec.tiers.basic.items.slice(1).map((i) => i.id) : rec.tiers[tier].items.slice(1).filter(() => rand() < 0.2).map((i) => i.id), qty: {}, added: [] };
+    for (const it of rec.tiers[tier].items) if (["P19", "P23", "P07", "P08", "P16"].includes(it.id) && rand() < 0.3) edits.qty[it.id] = 1 + Math.floor(rand() * 6);
     const baseB = rec.tiers[custom ? "basic" : tier];
     let cur = editBundle(baseB, edits, ctx, catalogue);
     for (const a of addableProducts(cur, ctx, catalogue)) {
@@ -146,6 +147,9 @@ const types = reference.businessTypes;
     // owner customises every branch
     const branches = fitBranches(null, ctx.sites).map((b) => ({
       ...b, name: rand() < 0.5 ? "Shop " + b.key : "",
+      size: count > 1 ? pick(["small", "regular", "large"]) : "regular",
+      ...(count > 1 && rand() < 0.4 ? (() => { const pin = String(400000 + Math.floor(rand() * 99999)); return { pin, fibreOk: Number(pin) % 14 !== 0 }; })() : {}),
+      add: BRANCH_SERVICES.filter(() => rand() < 0.3),
       off: split.perBranch.filter((d) => !LINK_IDS.includes(d.id) && rand() < 0.3).map((d) => d.id),
       qty: Object.fromEntries(split.perBranch.filter((d) => BRANCH_QTY.has(d.id) && rand() < 0.5).map((d) => [d.id, 1 + Math.floor(rand() * 8)])),
     }));
@@ -156,25 +160,43 @@ const types = reference.businessTypes;
     if (parts !== plan.monthly) sumBad++;
     const fromCatalogue = plan.items.reduce((s, i) => s + byId[i.id].priceMin * i.qty, 0);
     if (fromCatalogue !== plan.monthly) priceBad++;
-    // every branch keeps its internet line
-    if (plan.branches.some((b) => !b.items.some((i) => LINK_IDS.includes(i.id)))) viol++;
+    // every branch keeps exactly one internet line, sized and checked for that branch
+    if (plan.branches.some((b) => b.items.filter((i) => LINK_IDS.includes(i.id)).length !== 1)) viol++;
+    for (const [i, b] of plan.branches.entries()) {
+      const raw = branches[i], link = b.items.find((x) => LINK_IDS.includes(x.id)).id;
+      if ((raw.fibreOk ?? ctx.fibreOk) === false && link !== "P04") linkBad++;
+      if (raw.fibreOk === true && link === "P04") linkBad++;
+      // every item at a branch passes the rules on its own, with only that branch's internet line
+      for (const it of b.items) if (!checkEligibility(byId[it.id], { ...ctx, sites: branches.length }, new Set(b.items.map((x) => x.id))).ok) viol++;
+    }
+    // small branches never cost more than the same branch at regular size, large never less
+    if (count > 1) {
+      const one = branches[0];
+      const cost = (size) => priceBranches(split, [{ ...one, size, qty: {} }, ...branches.slice(1)], catalogue, ctx).branches[0].monthly;
+      if (!(cost("small") <= cost("regular") && cost("regular") <= cost("large"))) sizeBad++;
+    }
     // after booking: add a branch copied from a random one
     const order = { split, branches, ctx: { ...ctx } };
     const before = priceOrder(order, catalogue);
     const from = pick(branches);
-    const nb = [...branches, newBranch("New", from, branches)];
+    const nb = [...branches, { ...newBranch("New", from, branches), pin: from.pin, fibreOk: from.fibreOk }];
     const after = priceOrder({ ...order, branches: nb, ctx: { ...ctx, sites: nb.length } }, catalogue);
     const fromCost = before.branches.find((b) => b.key === from.key).monthly;
     if (after.violations.length || after.monthly - before.monthly !== fromCost) addBad++;
     if (new Set(nb.map((b) => b.key)).size !== nb.length) addBad++;
   }
-  console.log(`Branches: ${plans} customised plans (build-your-own, removals, extras, per-branch changes, added branches): ${viol} violations, ${sumBad} totals off, ${priceBad} prices not from catalogue`);
+  console.log(`Branches: ${plans} customised plans (own plans, removals, extras, per-branch size, pincode and services, added branches): ${viol} violations, ${sumBad} totals off, ${priceBad} prices not from catalogue`);
   ok(viol === 0, "branch plans have no rule violations");
   ok(sumBad === 0, "branch costs + shared = total bill");
   ok(priceBad === 0, "every price comes from the catalogue");
   ok(compatBad === 0, "single-site plans cost the same as before");
   ok(addBad === 0, "adding a branch or a service never breaks a rule and costs exactly the copied branch");
   ok(lockedAddAllowed === 0, "locked services really are ineligible");
+  ok(linkBad === 0, `each branch's internet follows its own fibre check (${linkBad} wrong)`);
+  ok(sizeBad === 0, `branch size orders the price small ≤ regular ≤ large (${sizeBad} wrong)`);
+  // "Same as" copies services and size but keeps the branch's own name and pincode
+  const sa = sameAs({ key: "b2", name: "Station Road", pin: "400008", fibreOk: false, size: "small", qty: {}, off: [], add: [] }, { key: "b1", name: "MG Road", pin: "141001", fibreOk: true, size: "large", qty: { P23: 6 }, off: ["P22"], add: ["P09"] });
+  ok(sa.name === "Station Road" && sa.pin === "400008" && sa.size === "large" && sa.qty.P23 === 6 && sa.add[0] === "P09", "Same as copies services, keeps name and pincode");
   // fitBranches keeps names and stable keys
   const kept = fitBranches([{ key: "b1", name: "MG Road", qty: {}, off: [] }], 3);
   ok(kept.length === 3 && kept[0].name === "MG Road" && kept.map((b) => b.key).join() === "b1,b2,b3", "branch list grows with stable keys");

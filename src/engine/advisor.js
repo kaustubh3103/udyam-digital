@@ -118,6 +118,13 @@ const COMPLETE_EXTRAS = {
   mfg: ["security", "cctv", "staticip"],
 };
 
+const COMPLETE_NEXT = {
+  micro: ["whatsapp", "billing", "website"],
+  prof: ["email", "security", "website", "calls"],
+  multi: ["guestwifi", "security", "calls"],
+  mfg: ["email", "backup", "uptime"],
+};
+
 // ---------------------------------------------------------------- main
 /**
  * ctx = { seg, cityTier, employees, sites, gstinActive, fibreOk, needs: [ids] }
@@ -127,7 +134,7 @@ export function recommend(ctx, catalogue) {
   const byId = Object.fromEntries(catalogue.map((p) => [p.id, p]));
   const locked = new Map();
 
-  const build = (level) => {
+  const build = (level, more = []) => {
     const items = new Map();
     const add = (id, qty, why) => {
       const prev = items.get(id);
@@ -142,7 +149,7 @@ export function recommend(ctx, catalogue) {
 
     let wanted = [...ctx.needs];
     if (level === "basic") wanted = wanted.slice(0, 1);
-    if (level === "complete") wanted = [...new Set([...wanted, ...COMPLETE_EXTRAS[ctx.seg]])];
+    if (level === "complete") wanted = [...new Set([...wanted, ...COMPLETE_EXTRAS[ctx.seg], ...more])];
 
     for (const need of wanted) {
       if (need === "staticip") {
@@ -165,8 +172,12 @@ export function recommend(ctx, catalogue) {
     return priceBundle([...items.values()], catalogue);
   };
 
+  const recommended = build("recommended");
+  let complete = build("complete");
+  // if the usual extras add nothing (already asked for, or not allowed), offer the next most useful ones
+  for (let k = 1; complete.monthly === recommended.monthly && k <= COMPLETE_NEXT[ctx.seg].length; k++) complete = build("complete", COMPLETE_NEXT[ctx.seg].slice(0, k + 1));
   return {
-    tiers: { basic: build("basic"), recommended: build("recommended"), complete: build("complete") },
+    tiers: { basic: build("basic"), recommended, complete },
     locked: [...locked.values()],
   };
 }

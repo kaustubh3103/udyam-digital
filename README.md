@@ -20,7 +20,8 @@ Hindi and English are complete; Marathi covers the first screens and falls back 
 
 - **Change any plan:** remove items, change quantities, or tap **Add a service** to see everything else in the catalogue. Locked services say what's needed (for example GST or 10+ staff).
 - **Build my own plan:** start with only the internet line and add services one by one.
-- **Branch by branch** (2+ branches): set the exact number of branches, name each one, and choose what each gets (for example 6 cameras at the main shop, no billing tablet at a small outlet). Shared items (SIMs, email, WhatsApp, website...) are bought once for the whole business.
+- **Your branches** (an extra step for 2+ branches): the exact number of branches, and for each one its name, size (small counter, regular shop, large store), pincode and services. Branch 2 onwards start as a copy of branch 1 (**Same as …**), so the owner changes only what differs. Each branch pays only for what it needs: a small counter gets cheaper internet, a large store faster; a branch without fibre gets 5G AirFiber; backup internet can go only where it's asked for. Shared items (SIMs, email, WhatsApp, website...) are bought once for the whole business.
+- Branches in different states (one GSTIN per state) are left to assisted sign-up by field sales; the self-serve journey covers chains of 3–10 stores in one city or region, as in the case.
 - **My branches** (after booking): the combined monthly bill split by branch, each branch's services, cost and install status, **Add a branch** (copies a branch you choose and shows the extra cost), and changes to any branch. One bill and one support number for all of them. Saathi can answer "how much am I paying for each branch?".
 
 Every change is priced from the catalogue and re-checked against every rule, per branch and for the whole business (`src/engine/branches.js`).
@@ -65,7 +66,11 @@ Everything else is deterministic:
 
 ```
 Replay: 5000 leads → 15000 bundles, 0 eligibility violations, 752 requests shown as locked with a reason
-Branches: 4000 customised plans (build-your-own, removals, extras, per-branch changes, added branches): 0 violations, 0 totals off, 0 prices not from catalogue
+Branches: 4000 customised plans (own plans, removals, extras, per-branch size, pincode and services, added branches): 0 violations, 0 totals off, 0 prices not from catalogue
+• Kirana store, Jaipur, just me, no GST → Recommended ₹1897/month … Locked: WhatsApp Business API Starter (gstin)
+… 15 advisor scenarios (clinic, CA firm, restaurant chain, textile unit, salon without fibre…)
+Business words: 15/15 matched to the right type
+All 15 scenarios passed
 K01  action    fail:gstinStatus, warn:udyamBlankNotFound
 K02  verified  info:deskewed
 K04  action    fail:blurry

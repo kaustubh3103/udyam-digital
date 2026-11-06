@@ -9,7 +9,7 @@
     "build": "vite build",
     "build:single": "SINGLE=1 vite build --outDir dist-single",
     "preview": "vite preview",
-    "test": "node tests/run-all.mjs",
+    "test": "node tests/run-all.mjs && node tests/scenarios.mjs",
     "data": "python3 scripts/prepare_data.py"
   },
   "dependencies": {
