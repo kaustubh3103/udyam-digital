@@ -62,7 +62,7 @@ export default function SalesDesk({ callbacks, orders, onStartAssisted }) {
       <div className="kpis">
         <div className="kpi"><span className="v num">{(K.conv * 100).toFixed(1)}%</span><span className="l">Lead to activation today</span><span className="t">Target 15%+</span></div>
         <div className="kpi"><span className="v num">{K.avgDays} days</span><span className="l">Lead to activation</span><span className="t">Target under 5 days</span></div>
-        <div className="kpi"><span className="v num">{inr(K.cacPerActivation)}</span><span className="l">Cost per activated business</span><span className="t">Target under ₹6,000</span></div>
+        <div className="kpi"><span className="v num">{inr(K.cacPerActivation)}</span><span className="l">Cost per activated business</span><span className="t">Target ≤ ₹6,500</span></div>
         <div className="kpi"><span className="v num">{K.avgChases}</span><span className="l">Status calls per customer</span><span className="t">Target under 1</span></div>
       </div>
 
