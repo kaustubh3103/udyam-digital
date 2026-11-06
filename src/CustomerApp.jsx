@@ -5,7 +5,7 @@ import { Opt, Chip, Note, Sheet, Mic, speak, matchKeywords } from "./ui.jsx";
 import { BizIcon, NeedIcon, Tile } from "./icons.jsx";
 import Chat from "./Chat.jsx";
 import { getLLM } from "./ai/llm.js";
-import { buildClassifyPrompt, validateClassification, keywordClassify } from "./ai/classify.js";
+import { buildClassifyPrompt, validateClassification, keywordClassify, GENERIC_TYPES } from "./ai/classify.js";
 import { catalogue, gstReg, udyamReg, reference, inr, tierOfCity, segOfType, fibreAvailable, store, maskGstin } from "./data.js";
 import { EMP_BANDS, SITE_BANDS, needsFor, makeCtx, recommend, editBundle } from "./engine/advisor.js";
 import { validateGstinFormat, lookupGstin, findUdyamByBusiness, lookupUdyam, proprietorOf, sharpnessFromImageData, BLUR_THRESHOLD } from "./engine/kyc.js";
@@ -431,17 +431,30 @@ function OtherBiz({ s, up, t, onList }) {
           <Sparkles size={16} /> {busy ? t("bizOtherThinking") : t("bizOtherFind")}
         </button>
       </div>
-      {noMatch && <Note kind="warn">{t("bizOtherNoMatch")}</Note>}
+      {noMatch && (
+        <div className="match">
+          <strong>{t("bizOtherPickSeg")}</strong>
+          <div className="grid-cards two">
+            {GENERIC_TYPES.map((g) => (
+              <Opt key={g.type} icon={<BizIcon type={g.type} />} onClick={() => { setNoMatch(false); setRes({ type: g.type, seg: g.seg, via: "choice", labelLocal: "", labelEn: "", reason: "" }); }}>
+                {t("segName")[g.seg]}
+              </Opt>
+            ))}
+          </div>
+        </div>
+      )}
       {res && (
         <div className="match">
           <span className="small muted">{t("bizOtherResult")}</span>
           <div className="match-row">
             <BizIcon type={res.type} />
             <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-              <strong>{bizLabel(s.lang, res.type)}</strong>
+              <strong>{GENERIC_TYPES.some((g) => g.type === res.type) && res.via !== "choice"
+                ? ((s.lang === "en" ? res.labelEn : res.labelLocal) || res.labelEn || desc.trim().replace(/^./, (c) => c.toUpperCase()))
+                : bizLabel(s.lang, res.type)}</strong>
               <span className="small sub">{t("segName")[res.seg]}</span>
             </div>
-            <span className={"pill " + (res.via === "ai" ? "brand" : "info")} style={{ marginLeft: "auto" }}>{res.via === "ai" ? t("viaAI") : t("viaKeywords")}</span>
+            <span className={"pill " + (res.via === "ai" ? "brand" : "info")} style={{ marginLeft: "auto" }}>{res.via === "ai" ? t("viaAI") : res.via === "choice" ? t("viaChoice") : t("viaKeywords")}</span>
           </div>
           {res.reason && s.lang === "en" && <span className="small muted">{res.reason}</span>}
           {confirmed ? <Note kind="ok">{t("bizOtherYes")}</Note> : (

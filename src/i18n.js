@@ -262,6 +262,8 @@ const en = {
   bizOtherYes: "Yes, that's right",
   bizOtherNo: "No, let me choose",
   bizOtherNoMatch: "We couldn't match that. Please choose the closest one from the full list.",
+  bizOtherPickSeg: "Which of these is closest to your business?",
+  viaChoice: "Your choice",
   viaAI: "Matched by AI",
   viaKeywords: "Matched by keywords",
   segName: { micro: "Shop or local service", prof: "Professional office or clinic", multi: "Business with branches", mfg: "Factory or workshop" },
@@ -553,6 +555,8 @@ const hi = {
   bizOtherYes: "हाँ, यही सही है",
   bizOtherNo: "नहीं, मैं ख़ुद चुनूँगा",
   bizOtherNoMatch: "मिलान नहीं हुआ। कृपया पूरी सूची से सबसे पास वाला चुनें।",
+  bizOtherPickSeg: "आपका बिज़नेस इनमें से किसके सबसे क़रीब है?",
+  viaChoice: "आपकी पसंद",
   viaAI: "AI से मिलान",
   viaKeywords: "शब्दों से मिलान",
   segName: { micro: "दुकान या स्थानीय सेवा", prof: "प्रोफ़ेशनल ऑफिस या क्लिनिक", multi: "कई ब्रांच वाला बिज़नेस", mfg: "फ़ैक्ट्री या वर्कशॉप" },
@@ -685,6 +689,8 @@ export const BIZ_LABELS = {
   "Budget hotel group": ["🏨", "होटल ग्रुप"], "Textile unit": ["🧵", "टेक्सटाइल यूनिट"], "Auto-parts unit": ["⚙️", "ऑटो-पार्ट्स यूनिट"],
   "Plastic moulding unit": ["🧴", "प्लास्टिक मोल्डिंग"], "Packaging unit": ["📦", "पैकेजिंग यूनिट"],
   "Printing press": ["🖨️", "प्रिंटिंग प्रेस"], "Furniture workshop": ["🪑", "फ़र्नीचर वर्कशॉप"], "Food processing unit": ["🏭", "फ़ूड प्रोसेसिंग यूनिट"],
+  "Other shop or service": ["", "अन्य दुकान या सेवा"], "Other office or clinic": ["", "अन्य ऑफिस या क्लिनिक"],
+  "Other multi-branch business": ["", "अन्य कई-ब्रांच बिज़नेस"], "Other factory or workshop": ["", "अन्य फ़ैक्ट्री या वर्कशॉप"],
 };
 export const bizLabel = (lang, type) => (lang === "en" ? type : BIZ_LABELS[type]?.[1] || type);
 export const bizIcon = (type) => BIZ_LABELS[type]?.[0] || "🏪";

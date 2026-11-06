@@ -6,6 +6,10 @@ import dashboard from "./data/dashboard.json";
 import leadModel from "./data/lead_score.json";
 import stalledLeads from "./data/stalled_leads.json";
 import specimens from "./data/kyc_specimens.json";
+import { withGenerics } from "./ai/classify.js";
+
+// The 35 specific types from the data, plus four broad "Other …" groups so every business fits somewhere.
+reference.businessTypes = withGenerics(reference.businessTypes);
 
 export { catalogue, gstReg, udyamReg, reference, dashboard, leadModel, stalledLeads, specimens };
 

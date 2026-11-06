@@ -4,7 +4,7 @@ import {
   Smile, FlaskConical, Activity, Calculator, Scale, GraduationCap, Plane, DraftingCompass, Home, Shield,
   Utensils, Tv, Hospital, Cake, Dumbbell, Baby, Hotel, Layers, Cog, Package, Printer, Armchair, Wheat,
   CreditCard, MessageCircle, Cctv, Wifi, Receipt, Mail, DatabaseBackup, ShieldCheck, RefreshCw, PhoneCall,
-  Globe, MessageSquareText, Building2, Truck, Network, Store, CircleHelp,
+  Globe, MessageSquareText, Building2, Truck, Network, Store, CircleHelp, Briefcase, Factory,
 } from "lucide-react";
 
 // One consistent line-icon family, drawn in a tinted tile. Customers see a picture and a word,
@@ -19,6 +19,7 @@ const BIZ = {
   "Apparel retail chain": Shirt, "Bakery chain": Cake, "Gym chain": Dumbbell, "Pre-school chain": Baby,
   "Budget hotel group": Hotel, "Textile unit": Layers, "Auto-parts unit": Cog, "Plastic moulding unit": Package,
   "Packaging unit": Package, "Printing press": Printer, "Furniture workshop": Armchair, "Food processing unit": Wheat,
+  "Other shop or service": Store, "Other office or clinic": Briefcase, "Other multi-branch business": Building2, "Other factory or workshop": Factory,
 };
 const NEED = {
   payments: CreditCard, whatsapp: MessageCircle, cctv: Cctv, guestwifi: Wifi, billing: Receipt, email: Mail,
