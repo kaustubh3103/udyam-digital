@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Phone, ArrowLeft, Volume2, Lock, Camera, Radio, Sparkles, Plus, IndianRupee, Star, Check } from "lucide-react";
 import { LANGS, makeT, productName, bizLabel, VOICE_KEYWORDS, NEED_KEYWORDS } from "./i18n.js";
 import { Opt, Chip, Note, Sheet, Mic, speak, matchKeywords } from "./ui.jsx";
@@ -372,43 +372,44 @@ function kycReady(s) {
 function BizScreen({ s, up, t }) {
   const [more, setMore] = useState(false);
   const [q, setQ] = useState("");
-  const [other, setOther] = useState(!!s.bizOther);
-  const all = reference.businessTypes.map((b) => b.type);
-  const top = ["Kirana store", "Pharmacy", "Salon", "Bakery", "Mobile repair shop", "Boutique", "Dental clinic", "Coaching centre", "CA firm", "Restaurant chain", "Textile unit"];
+  const all = reference.businessTypes.map((b) => b.type).filter((x) => !GENERIC_TYPES.some((g) => g.type === x));
+  const top = ["Kirana store", "Pharmacy", "Salon", "Bakery", "Mobile repair shop", "Boutique", "Dental clinic", "Coaching centre", "CA firm", "Restaurant chain", "Textile unit", "Diagnostic lab"];
   const list = more ? all.filter((x) => (x + " " + bizLabel("hi", x)).toLowerCase().includes(q.toLowerCase())) : top;
   return (
     <div className="screen">
       <div className="screen-head"><h1>{t("bizTitle")}</h1></div>
       <Mic lang={s.lang} t={t} onText={(text) => { const m = matchKeywords(text, VOICE_KEYWORDS)[0]; if (m) up({ bizType: m, bizOther: null }); return !!m; }} />
-      <Opt row icon={<Tile as={Plus} />} pressed={other || !!s.bizOther} onClick={() => setOther(true)}>
-        <span style={{ display: "flex", flexDirection: "column" }}>
-          <strong>{t("bizOtherCard")}</strong>
-          <span className="small sub" style={{ fontWeight: 400 }}>{t("bizOtherCardSub")}</span>
-        </span>
-      </Opt>
-      {other && <OtherBiz s={s} up={up} t={t} />}
       {more && <input id="bizq" className="input" placeholder={t("bizSearch")} value={q} onChange={(e) => setQ(e.target.value)} />}
       <div className="grid-cards">
         {list.map((type) => (
-          <Opt key={type} icon={<BizIcon type={type} />} pressed={s.bizType === type && !s.bizOther} onClick={() => { up({ bizType: type, bizOther: null }); setOther(false); }}>{bizLabel(s.lang, type)}</Opt>
+          <Opt key={type} icon={<BizIcon type={type} />} pressed={s.bizType === type} onClick={() => up({ bizType: type, bizOther: null })}>{bizLabel(s.lang, type)}</Opt>
         ))}
-        <Opt icon={<Tile as={Plus} />} pressed={other || !!s.bizOther} onClick={() => { setOther(true); window.scrollTo?.({ top: 0, behavior: "smooth" }); }}>{t("bizOther")}</Opt>
       </div>
       {!more && <button className="link-btn" onClick={() => setMore(true)}>{t("bizMore")} ({all.length})</button>}
+      <BroadGroups s={s} up={up} t={t} />
     </div>
   );
 }
 
-// "Other": no AI needed. The plan depends only on the broad group, so the owner taps the closest
-// group and types what the business is (shown on the plan and passed to the sales team).
-function OtherBiz({ s, up, t }) {
+// Not in the list: the plan depends only on the broad group, so the owner taps the closest group and
+// types what the business is (shown on the plan and passed to the sales team). No AI needed.
+function BroadGroups({ s, up, t }) {
   const chosen = GENERIC_TYPES.find((g) => g.type === s.bizType);
   const name = s.bizOther?.text || "";
-  const pick = (g) => up({ bizType: g.type, bizOther: { text: name, labelLocal: name, via: "choice" } });
-  const setName = (v) => up((p) => ({ bizOther: { text: v.slice(0, 60), labelLocal: v.slice(0, 60), via: "choice" } }));
+  const inputRef = useRef(null);
+  const [flash, setFlash] = useState(0);
+  const pick = (g) => { up({ bizType: g.type, bizOther: { text: name, labelLocal: name, via: "choice" } }); setFlash((n) => n + 1); };
+  const setName = (v) => up({ bizOther: { text: v.slice(0, 60), labelLocal: v.slice(0, 60), via: "choice" } });
+  useEffect(() => {
+    if (!flash || !inputRef.current) return;
+    const el = inputRef.current;
+    el.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    el.focus({ preventScroll: true });
+    el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+  }, [flash]);
   return (
     <div className="panel other-panel">
-      <strong>{t("bizOtherPickSeg")}</strong>
+      <strong>{t("bizBroadTitle")}</strong>
       <div className="grid-cards two">
         {GENERIC_TYPES.map((g) => (
           <Opt key={g.type} icon={<BizIcon type={g.type} />} pressed={s.bizType === g.type} onClick={() => pick(g)}>{t("segName")[g.seg]}</Opt>
@@ -418,7 +419,7 @@ function OtherBiz({ s, up, t }) {
         <div className="field">
           <label htmlFor="bizother">{t("bizOtherNameLabel")}</label>
           <div className="input-row" style={{ alignItems: "center" }}>
-            <input id="bizother" className="input" placeholder={t("bizOtherPh")} value={name} autoComplete="off"
+            <input id="bizother" ref={inputRef} className="input" placeholder={t("bizOtherPh")} value={name} autoComplete="off"
               onChange={(e) => setName(e.target.value)} />
             <Mic lang={s.lang} t={t} compact onText={(heard) => { setName(heard); return true; }} />
           </div>
