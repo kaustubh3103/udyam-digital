@@ -130,6 +130,7 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
   // ------------------------------------------------------------ derived
   const { seg, sitesMin, ctx, rec, bundle, businessName } = derive(s);
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatMsgs, setChatMsgs] = useState([]);
   const navigate = (target) => {
     if (!s.verified) return up({ step: "phone", pendingStep: target });
     up((p) => ({ step: resolveStep(target, p) }));
@@ -195,7 +196,7 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
             <strong>{t("resume")}</strong>
             <div className="footer-row">
               <button className="btn small" onClick={() => up({ resumeOffer: false, step: s.step === "welcome" ? "biz" : s.step })}>{t("continue")}</button>
-              <button className="btn ghost small" onClick={() => { store.del(SAVE_KEY); setS(initial()); }}>{t("startOver")}</button>
+              <button className="btn ghost small" onClick={() => { store.del(SAVE_KEY); setChatMsgs([]); setS(initial()); }}>{t("startOver")}</button>
             </div>
           </div>
         )}
@@ -277,7 +278,7 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
     consent: <ConsentScreen s={s} up={up} t={t} />,
     kyc: <KycScreen s={s} up={up} t={t} setSheet={setSheet} />,
     slot: bundle && <SlotScreen s={s} up={up} t={t} bundle={bundle} />,
-    track: <TrackScreen s={s} up={up} t={t} bundle={bundle} onNew={() => { store.del(SAVE_KEY); setS(initial(s.partner)); }} />,
+    track: <TrackScreen s={s} up={up} t={t} bundle={bundle} onNew={() => { store.del(SAVE_KEY); setChatMsgs([]); setS(initial(s.partner)); }} />,
   };
 
   // ------------------------------------------------------------ footer
@@ -326,7 +327,7 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
         </div>
       )}
       {chatOpen && (
-        <Chat s={s} t={t} derive={derive} apply={applyUpdates}
+        <Chat s={s} t={t} derive={derive} apply={applyUpdates} msgs={chatMsgs} setMsgs={setChatMsgs}
           commit={(patch) => up(patch)} navigate={navigate}
           onCallback={() => requestCallback(true)} onClose={() => setChatOpen(false)} />
       )}

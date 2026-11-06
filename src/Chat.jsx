@@ -15,8 +15,11 @@ import { Mic } from "./ui.jsx";
  *  navigate(step) moves the app to a screen (respects what is still missing)
  *  onCallback()   asks a person to call
  */
-export default function Chat({ s, t, derive, apply, commit, navigate, onCallback, onClose }) {
-  const [msgs, setMsgs] = useState(() => [{ role: "assistant", text: t("chatHello"), intro: true }]);
+export default function Chat({ s, t, derive, apply, commit, navigate, onCallback, onClose, msgs: keptMsgs, setMsgs: keepMsgs }) {
+  // The conversation lives in the parent, so closing and reopening Saathi keeps it.
+  const [localMsgs, setLocalMsgs] = useState([]);
+  const msgs = keptMsgs ?? localMsgs;
+  const setMsgs = keepMsgs ?? setLocalMsgs;
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [aiState, setAiState] = useState("checking"); // checking | on | off
@@ -26,6 +29,18 @@ export default function Chat({ s, t, derive, apply, commit, navigate, onCallback
   stateRef.current = s;
 
   useEffect(() => { getLLM().then((l) => setAiState(l ? "on" : "off")); }, []);
+
+  // On open: show what Saathi already knows about this owner, so nothing has to be repeated.
+  // A fresh note is added only if the owner has moved on since the last one.
+  useEffect(() => {
+    const d = derive(s);
+    const key = [s.step, s.bizType, s.empBand, s.siteBand, s.city, s.gst?.gstin || s.noGst, s.needs.join(","), s.tier, d.bundle?.monthly].join("|");
+    setMsgs((m) => {
+      const lastIntro = [...m].reverse().find((x) => x.intro);
+      if (lastIntro?.key === key) return m;
+      return [...m, { role: "assistant", intro: true, key, step: s.step, facts: knownFacts(s, d, t), plan: planCard(s), first: !m.length }];
+    });
+  }, []);
   useEffect(() => { listRef.current?.scrollTo?.({ top: 1e6, behavior: "smooth" }); }, [msgs, busy]);
   useEffect(() => () => ctlRef.current?.abort(), []);
 
@@ -42,7 +57,7 @@ export default function Chat({ s, t, derive, apply, commit, navigate, onCallback
     const q = String(raw ?? text).trim();
     if (!q || busy) return;
     setText("");
-    const history = msgs.filter((m) => !m.intro && (m.role === "user" || m.text)).slice(-8);
+    const history = msgs.filter((m) => !m.intro && m.text).slice(-8);
     setMsgs((m) => [...m, { role: "user", text: q }]);
     setBusy(true);
     const llm = await getLLM();
@@ -108,7 +123,8 @@ export default function Chat({ s, t, derive, apply, commit, navigate, onCallback
     return { role: "assistant", text, offline: true, plan: b && pick(["price", "plan", "कितना", "क़ीमत", "प्लान", "kitna"]) ? planCard(st) : null };
   }
 
-  const suggestions = [t("chatSuggest1"), t("chatSuggest2"), t("chatSuggest3")];
+  const stepSuggest = t("chatSuggestFor." + s.step);
+  const suggestions = Array.isArray(stepSuggest) ? stepSuggest : [t("chatSuggest1"), t("chatSuggest2"), t("chatSuggest3")];
 
   return (
     <div className="chat" role="dialog" aria-modal="true" aria-label={t("chatTitle")}>
@@ -125,8 +141,19 @@ export default function Chat({ s, t, derive, apply, commit, navigate, onCallback
 
       <div className="chat-list" ref={listRef} aria-live="polite">
         {msgs.map((m, i) => (
-          <div key={i} className={"bubble " + m.role + (m.error ? " err" : "")}>
-            <p>{m.text}</p>
+          <div key={i} className={"bubble " + m.role + (m.error ? " err" : "") + (m.intro ? " intro" : "")}>
+            {m.intro ? (
+              <>
+                {m.first && <p>{t("chatHello")}</p>}
+                {m.facts.length > 0 ? (
+                  <>
+                    <strong className="chat-resume">{t("chatResumeTitle")}</strong>
+                    <p className="small sub">{t("chatResume", t("chatScreen." + m.step))}</p>
+                    <div className="chat-facts">{m.facts.map((f) => <span key={f} className="pill info">{f}</span>)}</div>
+                  </>
+                ) : !m.first && <p>{t("chatHello")}</p>}
+              </>
+            ) : <p>{m.text}</p>}
             {m.changed?.length > 0 && (
               <div className="chat-changes">
                 <CircleCheck size={14} /> {t("chatFilled")}: {m.changed.map((k) => t("chatField." + k)).join(", ")}
@@ -153,7 +180,7 @@ export default function Chat({ s, t, derive, apply, commit, navigate, onCallback
           </div>
         ))}
         {busy && <div className="bubble assistant typing"><span /><span /><span /></div>}
-        {msgs.length === 1 && !busy && (
+        {msgs.length > 0 && msgs[msgs.length - 1].intro && !busy && (
           <div className="chips chat-suggest">
             {suggestions.map((q) => <button key={q} className="chip" onClick={() => send(q)}>{q}</button>)}
           </div>
@@ -170,10 +197,28 @@ export default function Chat({ s, t, derive, apply, commit, navigate, onCallback
   );
 }
 
+/** Short, owner-facing list of what Saathi already knows. Built by code, not by the model. */
+function knownFacts(s, d, t) {
+  const f = [];
+  if (d.businessName) f.push(d.businessName);
+  if (s.empBand) f.push(t("chatFact.staff", t("emp." + s.empBand)));
+  if (s.siteBand && s.siteBand !== "1") f.push(t("chatFact.sites", t("siteB." + s.siteBand)));
+  if (s.city) f.push(s.city);
+  if (s.gst) f.push(t("chatFact.gst"));
+  else if (s.noGst) f.push(t("chatFact.noGst"));
+  if (s.needs.length) {
+    const names = s.needs.slice(0, 2).map((n) => t("chatNeedShort." + n));
+    f.push(names.join(", ") + (s.needs.length > 2 ? ` +${s.needs.length - 2}` : ""));
+  }
+  if (d.bundle) f.push(`${t("tiers")[s.tier]} · ${inr(d.bundle.monthly)}${t("perMonth")}`);
+  return f;
+}
+
 function describePlan(st, d) {
   const names = PRODUCT_NAMES.en;
   const tierName = { basic: "Basic", recommended: "Recommended", complete: "Complete" }[st.tier];
-  const others = Object.entries(d.rec.tiers).map(([k, v]) => `${k} ₹${v.monthly}/month`).join(", ");
+  const others = Object.entries(d.rec.tiers).map(([k, v]) =>
+    `${k}: ₹${v.monthly}/month, setup ₹${v.setup} (${v.items.map((i) => `${names[i.id]} × ${i.qty}`).join("; ")})`).join(" | ");
   return {
     tierName, monthly: d.bundle.monthly, setup: d.bundle.setup, contractMonths: d.bundle.contractMonths, installDays: d.bundle.installDays,
     items: d.bundle.items, others, locked: d.rec.locked.map((l) => names[l.id]).join(", "),

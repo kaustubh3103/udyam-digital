@@ -401,3 +401,9 @@ td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
 /* draw the eye to the business-name box after a broad group is tapped */
 .input.flash { animation: flash 1.6s ease-out 1; }
 @keyframes flash { 0%, 40% { border-color: var(--brand); box-shadow: 0 0 0 5px var(--brand-soft), 0 0 0 7px color-mix(in srgb, var(--brand) 35%, transparent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+/* Saathi's "picking up where you are" note */
+.bubble.intro { gap: 6px; }
+.chat-resume { font-family: var(--display); font-size: 1rem; color: var(--brand); }
+.chat-facts { display: flex; flex-wrap: wrap; gap: 6px; }
+.chat-facts .pill { white-space: normal; text-align: left; }
