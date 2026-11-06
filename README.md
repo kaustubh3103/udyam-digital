@@ -30,8 +30,9 @@ Hindi and English are complete; Marathi covers the first screens and falls back 
 | Feature | What the language model does | What code does |
 | --- | --- | --- |
 | **Saathi chat** (floating "Ask Saathi" button) | Answers questions in the owner's language, and turns a message like *"Pune mein meri medical shop hai, 3 log, CCTV chahiye"* into proposed form answers | Accepts only values from fixed lists (`src/ai/assistant.js`), runs GSTIN and pincode lookups itself, prices the plan with the rule engine, and **blocks any reply that mentions a ₹ amount the rules didn't produce** |
-| **"Other" business type** | Reads the owner's own description and picks the closest of the 35 types | Accepts only a listed type; the owner confirms; keyword matching takes over offline |
 | Booking help | Suggests the next screen ("Continue booking") | Moves only as far as the answers allow; consent, e-sign and payment are always done by the owner |
+
+We deliberately don't use AI where a tap does the job better. For a business that isn't in the list, the owner taps the closest of four broad groups and types its name: the plan depends only on the group, so AI would add delay and a permission prompt for no gain.
 
 Everything else is deterministic:
 
@@ -127,7 +128,7 @@ src/engine/kyc.js       GSTIN checksum + OCR repair, registry lookups, applicant
 src/engine/score.js     lead score
 src/ai/llm.js           model connector (claude.ai / serverless / none)
 src/ai/assistant.js     Saathi's rules, context, update validation, price guard
-src/ai/classify.js      "Other" business type classification + keyword fallback
+src/ai/classify.js      broad business groups for "Other" (+ optional keyword matcher)
 src/Chat.jsx            Saathi chat panel
 api/chat.js             serverless endpoint that holds the API key
 src/CustomerApp.jsx     owner journey

@@ -4,8 +4,7 @@ import { LANGS, makeT, productName, bizLabel, VOICE_KEYWORDS, NEED_KEYWORDS } fr
 import { Opt, Chip, Note, Sheet, Mic, speak, matchKeywords } from "./ui.jsx";
 import { BizIcon, NeedIcon, Tile } from "./icons.jsx";
 import Chat from "./Chat.jsx";
-import { getLLM } from "./ai/llm.js";
-import { buildClassifyPrompt, validateClassification, keywordClassify, GENERIC_TYPES } from "./ai/classify.js";
+import { GENERIC_TYPES } from "./ai/classify.js";
 import { catalogue, gstReg, udyamReg, reference, inr, tierOfCity, segOfType, fibreAvailable, store, maskGstin } from "./data.js";
 import { EMP_BANDS, SITE_BANDS, needsFor, makeCtx, recommend, editBundle } from "./engine/advisor.js";
 import { validateGstinFormat, lookupGstin, findUdyamByBusiness, lookupUdyam, proprietorOf, sharpnessFromImageData, BLUR_THRESHOLD } from "./engine/kyc.js";
@@ -54,7 +53,7 @@ export function derive(s) {
 
 export function doneFor(step, s, bundle) {
   return {
-    biz: !!s.bizType,
+    biz: !!s.bizType && (!GENERIC_TYPES.some((g) => g.type === s.bizType) || (s.bizOther?.text || "").trim().length >= 2),
     gst: !!s.gst || s.noGst,
     size: !!s.empBand && !!s.siteBand,
     loc: !!s.city && s.fibreOk !== null,
@@ -381,13 +380,13 @@ function BizScreen({ s, up, t }) {
     <div className="screen">
       <div className="screen-head"><h1>{t("bizTitle")}</h1></div>
       <Mic lang={s.lang} t={t} onText={(text) => { const m = matchKeywords(text, VOICE_KEYWORDS)[0]; if (m) up({ bizType: m, bizOther: null }); return !!m; }} />
-      <Opt row icon={<Tile as={Sparkles} />} pressed={other || !!s.bizOther} onClick={() => setOther(true)}>
+      <Opt row icon={<Tile as={Plus} />} pressed={other || !!s.bizOther} onClick={() => setOther(true)}>
         <span style={{ display: "flex", flexDirection: "column" }}>
           <strong>{t("bizOtherCard")}</strong>
           <span className="small sub" style={{ fontWeight: 400 }}>{t("bizOtherCardSub")}</span>
         </span>
       </Opt>
-      {other && <OtherBiz s={s} up={up} t={t} onList={() => { setOther(false); setMore(true); }} />}
+      {other && <OtherBiz s={s} up={up} t={t} />}
       {more && <input id="bizq" className="input" placeholder={t("bizSearch")} value={q} onChange={(e) => setQ(e.target.value)} />}
       <div className="grid-cards">
         {list.map((type) => (
@@ -400,69 +399,30 @@ function BizScreen({ s, up, t }) {
   );
 }
 
-// "Other": the owner describes the business; AI (or keywords, offline) picks the closest category;
-// the owner confirms. Only a type from the fixed list can ever be chosen.
-function OtherBiz({ s, up, t, onList }) {
-  const [desc, setDesc] = useState(s.bizOther?.text || "");
-  const [busy, setBusy] = useState(false);
-  const [res, setRes] = useState(s.bizOther ? { ...s.bizOther, type: s.bizType, seg: segOfType(s.bizType) } : null);
-  const [noMatch, setNoMatch] = useState(false);
-  const find = async () => {
-    if (!desc.trim()) return;
-    setBusy(true); setNoMatch(false); setRes(null);
-    let r = null;
-    try {
-      const llm = await getLLM();
-      if (llm) r = validateClassification(await llm.json(buildClassifyPrompt(desc, reference.businessTypes)), reference.businessTypes);
-    } catch { /* fall back to keywords */ }
-    if (!r) r = keywordClassify(desc, reference.businessTypes);
-    setBusy(false);
-    r ? setRes(r) : setNoMatch(true);
-  };
-  const confirmed = s.bizOther && res && s.bizType === res.type;
+// "Other": no AI needed. The plan depends only on the broad group, so the owner taps the closest
+// group and types what the business is (shown on the plan and passed to the sales team).
+function OtherBiz({ s, up, t }) {
+  const chosen = GENERIC_TYPES.find((g) => g.type === s.bizType);
+  const name = s.bizOther?.text || "";
+  const pick = (g) => up({ bizType: g.type, bizOther: { text: name, labelLocal: name, via: "choice" } });
+  const setName = (v) => up((p) => ({ bizOther: { text: v.slice(0, 60), labelLocal: v.slice(0, 60), via: "choice" } }));
   return (
     <div className="panel other-panel">
-      <label htmlFor="bizother"><strong>{t("bizOtherTitle")}</strong></label>
-      <textarea id="bizother" className="input" rows={2} placeholder={t("bizOtherPh")} value={desc}
-        onChange={(e) => { setDesc(e.target.value); setRes(null); }} />
-      <div className="footer-row" style={{ alignItems: "center" }}>
-        <Mic lang={s.lang} t={t} onText={(heard) => { setDesc(heard); setRes(null); return true; }} />
-        <button className="btn small" style={{ flex: "0 0 auto", marginLeft: "auto" }} disabled={!desc.trim() || busy} onClick={find}>
-          <Sparkles size={16} /> {busy ? t("bizOtherThinking") : t("bizOtherFind")}
-        </button>
+      <strong>{t("bizOtherPickSeg")}</strong>
+      <div className="grid-cards two">
+        {GENERIC_TYPES.map((g) => (
+          <Opt key={g.type} icon={<BizIcon type={g.type} />} pressed={s.bizType === g.type} onClick={() => pick(g)}>{t("segName")[g.seg]}</Opt>
+        ))}
       </div>
-      {noMatch && (
-        <div className="match">
-          <strong>{t("bizOtherPickSeg")}</strong>
-          <div className="grid-cards two">
-            {GENERIC_TYPES.map((g) => (
-              <Opt key={g.type} icon={<BizIcon type={g.type} />} onClick={() => { setNoMatch(false); setRes({ type: g.type, seg: g.seg, via: "choice", labelLocal: "", labelEn: "", reason: "" }); }}>
-                {t("segName")[g.seg]}
-              </Opt>
-            ))}
+      {chosen && (
+        <div className="field">
+          <label htmlFor="bizother">{t("bizOtherNameLabel")}</label>
+          <div className="input-row" style={{ alignItems: "center" }}>
+            <input id="bizother" className="input" placeholder={t("bizOtherPh")} value={name} autoComplete="off"
+              onChange={(e) => setName(e.target.value)} />
+            <Mic lang={s.lang} t={t} compact onText={(heard) => { setName(heard); return true; }} />
           </div>
-        </div>
-      )}
-      {res && (
-        <div className="match">
-          <span className="small muted">{t("bizOtherResult")}</span>
-          <div className="match-row">
-            <BizIcon type={res.type} />
-            <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-              <strong>{GENERIC_TYPES.some((g) => g.type === res.type) && res.via !== "choice"
-                ? ((s.lang === "en" ? res.labelEn : res.labelLocal) || res.labelEn || desc.trim().replace(/^./, (c) => c.toUpperCase()))
-                : bizLabel(s.lang, res.type)}</strong>
-              <span className="small sub">{t("segName")[res.seg]}</span>
-            </div>
-            <span className={"pill " + (res.via === "ai" ? "brand" : "info")} style={{ marginLeft: "auto" }}>{res.via === "ai" ? t("viaAI") : res.via === "choice" ? t("viaChoice") : t("viaKeywords")}</span>
-          </div>
-          {res.reason && s.lang === "en" && <span className="small muted">{res.reason}</span>}
-          {confirmed ? <Note kind="ok">{t("bizOtherYes")}</Note> : (
-            <div className="footer-row">
-              <button className="btn small" onClick={() => up({ bizType: res.type, bizOther: { text: desc.trim(), labelLocal: res.labelLocal || desc.trim(), labelEn: res.labelEn, via: res.via } })}>{t("bizOtherYes")}</button>
-              <button className="btn small ghost" onClick={onList}>{t("bizOtherNo")}</button>
-            </div>
-          )}
+          {name.trim().length < 2 && <span className="small muted">{t("bizOtherNameHint")}</span>}
         </div>
       )}
     </div>

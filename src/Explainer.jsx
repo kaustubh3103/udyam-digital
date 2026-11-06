@@ -47,7 +47,7 @@ const CARDS = {
   biz: () => ({
     title: "Business type sets the segment",
     points: [
-      "“Other”: the owner describes the business in their own words (typed or spoken, any language). GenAI picks the closest of the 35 types; code accepts only a listed type; the owner confirms. Offline, keyword matching takes over.",
+      "“Other”: the owner taps the closest of four broad groups and types what the business is. The plan depends only on the group, so a tap does this better than AI: instant, free, no permission prompt. The name is shown on the plan and passed to sales.",
       "35 business types map one-to-one to 4 segments in the data, so a single tap tells the rules what fits.",
       "Icons plus local-language labels work for owners who don't read English. The mic matches speech to a card; the owner confirms by seeing it highlighted.",
     ],
