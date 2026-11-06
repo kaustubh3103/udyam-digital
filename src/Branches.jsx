@@ -124,11 +124,11 @@ function SpendBar({ t, plan }) {
   return (
     <div className="spend">
       <div className="spend-bar" aria-hidden="true">
-        {parts.map((p, i) => <span key={p.k} style={{ width: `${(p.v / total) * 100}%` }} className={"seg s" + (p.k === "shared" ? "x" : i % 5)} />)}
+        {parts.map((p, i) => <span key={p.k} style={{ width: `${(p.v / total) * 100}%` }} className={"seg s" + (p.k === "shared" ? "x" : i % 6)} />)}
       </div>
       <div className="spend-legend">
         {parts.map((p, i) => (
-          <span key={p.k}><i className={"seg s" + (p.k === "shared" ? "x" : i % 5)} />{p.label} <span className="num">{inr(p.v)}</span></span>
+          <span key={p.k}><i className={"seg s" + (p.k === "shared" ? "x" : i % 6)} />{p.label} <span className="num">{inr(p.v)}</span></span>
         ))}
       </div>
     </div>

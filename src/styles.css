@@ -439,4 +439,4 @@ td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
 .spend-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .spend-legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
 .seg.s0 { background: #ff8a7a; } .seg.s1 { background: #ffd27a; } .seg.s2 { background: #8fd3c1; }
-.seg.s3 { background: #9db8ff; } .seg.s4 { background: #e0a3ff; } .seg.sx { background: rgba(255, 255, 255, .55); }
+.seg.s3 { background: #9db8ff; } .seg.s4 { background: #e0a3ff; } .seg.s5 { background: #b6e36a; } .seg.sx { background: rgba(255, 255, 255, .55); }
