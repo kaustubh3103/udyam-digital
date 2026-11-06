@@ -381,16 +381,20 @@ function BizScreen({ s, up, t }) {
     <div className="screen">
       <div className="screen-head"><h1>{t("bizTitle")}</h1></div>
       <Mic lang={s.lang} t={t} onText={(text) => { const m = matchKeywords(text, VOICE_KEYWORDS)[0]; if (m) up({ bizType: m, bizOther: null }); return !!m; }} />
+      <Opt row icon={<Tile as={Sparkles} />} pressed={other || !!s.bizOther} onClick={() => setOther(true)}>
+        <span style={{ display: "flex", flexDirection: "column" }}>
+          <strong>{t("bizOtherCard")}</strong>
+          <span className="small sub" style={{ fontWeight: 400 }}>{t("bizOtherCardSub")}</span>
+        </span>
+      </Opt>
+      {other && <OtherBiz s={s} up={up} t={t} onList={() => { setOther(false); setMore(true); }} />}
       {more && <input id="bizq" className="input" placeholder={t("bizSearch")} value={q} onChange={(e) => setQ(e.target.value)} />}
       <div className="grid-cards">
         {list.map((type) => (
           <Opt key={type} icon={<BizIcon type={type} />} pressed={s.bizType === type && !s.bizOther} onClick={() => { up({ bizType: type, bizOther: null }); setOther(false); }}>{bizLabel(s.lang, type)}</Opt>
         ))}
-        {!more && (
-          <Opt icon={<Tile as={Plus} />} pressed={other || !!s.bizOther} onClick={() => setOther(true)}>{t("bizOther")}</Opt>
-        )}
+        <Opt icon={<Tile as={Plus} />} pressed={other || !!s.bizOther} onClick={() => { setOther(true); window.scrollTo?.({ top: 0, behavior: "smooth" }); }}>{t("bizOther")}</Opt>
       </div>
-      {other && <OtherBiz s={s} up={up} t={t} onList={() => { setOther(false); setMore(true); }} />}
       {!more && <button className="link-btn" onClick={() => setMore(true)}>{t("bizMore")} ({all.length})</button>}
     </div>
   );

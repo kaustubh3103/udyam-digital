@@ -394,3 +394,6 @@ td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
   background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: var(--brand-ink); }
 .send[disabled] { opacity: .4; cursor: not-allowed; }
 .chat-foot { padding: 0 14px 10px; background: var(--surface); }
+
+/* keep the floating Saathi button from covering the last cards or links */
+.phone .screen { padding-bottom: 84px; }
