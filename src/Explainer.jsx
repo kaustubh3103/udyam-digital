@@ -18,7 +18,7 @@ export default function Explainer({ info }) {
       </div>
       <div className="explain-card">
         <h3>The rule</h3>
-        <p className="sub">AI may listen and read. Plain rules decide every product, price and KYC result, so the owner never sees a made-up price or an ineligible product.</p>
+        <p className="sub">GenAI listens, reads and explains, in any language. Plain rules decide every product, price and KYC result, and code checks every rupee amount the AI writes, so the owner never sees a made-up price or an ineligible product.</p>
         <p className="small muted">Replay test: all 5,000 leads × 3 plans = 15,000 bundles, 0 eligibility violations. The current process sold {K.eligibilityBreachTotal} bundles that broke catalogue rules, and activated {K.activatedOnBadGstin} customers on cancelled or suspended GSTINs.</p>
       </div>
     </aside>
@@ -29,6 +29,7 @@ const CARDS = {
   welcome: () => ({
     title: "One app, from interest to installation",
     points: [
+      "Saathi, the GenAI assistant, answers in the owner's language and can fill in the whole form from one message. It proposes answers; code validates them against fixed lists; the rule engine prices the plan.",
       `Today: ${(K.conv * 100).toFixed(1)}% of leads activate, after ${K.avgDays} days and ${K.avgChases} status calls on average.`,
       `Blended acquisition cost is ${inr(K.cacPerActivation)} per activated business.`,
       "Language comes first. Hindi, English and Marathi work now; the rest of the 10 languages in the leads data are switched on as translations land.",
@@ -46,6 +47,7 @@ const CARDS = {
   biz: () => ({
     title: "Business type sets the segment",
     points: [
+      "“Other”: the owner describes the business in their own words (typed or spoken, any language). GenAI picks the closest of the 35 types; code accepts only a listed type; the owner confirms. Offline, keyword matching takes over.",
       "35 business types map one-to-one to 4 segments in the data, so a single tap tells the rules what fits.",
       "Icons plus local-language labels work for owners who don't read English. The mic matches speech to a card; the owner confirms by seeing it highlighted.",
     ],

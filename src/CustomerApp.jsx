@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { LANGS, makeT, productName, bizLabel, bizIcon, VOICE_KEYWORDS, NEED_KEYWORDS } from "./i18n.js";
+import { Phone, ArrowLeft, Volume2, Lock, Camera, Radio, Sparkles, Plus, IndianRupee, Star, Check } from "lucide-react";
+import { LANGS, makeT, productName, bizLabel, VOICE_KEYWORDS, NEED_KEYWORDS } from "./i18n.js";
 import { Opt, Chip, Note, Sheet, Mic, speak, matchKeywords } from "./ui.jsx";
+import { BizIcon, NeedIcon, Tile } from "./icons.jsx";
+import Chat from "./Chat.jsx";
+import { getLLM } from "./ai/llm.js";
+import { buildClassifyPrompt, validateClassification, keywordClassify } from "./ai/classify.js";
 import { catalogue, gstReg, udyamReg, reference, inr, tierOfCity, segOfType, fibreAvailable, store, maskGstin } from "./data.js";
 import { EMP_BANDS, SITE_BANDS, needsFor, makeCtx, recommend, editBundle } from "./engine/advisor.js";
 import { validateGstinFormat, lookupGstin, findUdyamByBusiness, lookupUdyam, proprietorOf, sharpnessFromImageData, BLUR_THRESHOLD } from "./engine/kyc.js";
@@ -19,7 +24,8 @@ const ACCEL_DEMO = { phone: "9810000001", name: "Sneha Rao" };
 
 const initial = (partner) => ({
   step: "welcome", lang: "hi", phone: "", otpSent: false, otp: "", accel: null,
-  bizType: null, gstInput: "", gst: null, noGst: false,
+  verified: false, pendingStep: null,
+  bizType: null, bizOther: null, gstInput: "", gst: null, noGst: false,
   empBand: null, siteBand: null, city: null, pincode: "", fibreOk: null,
   internet: null, spend: null, needs: [], showMoreNeeds: false,
   tier: "recommended", edits: { removed: [], qty: {} },
@@ -28,6 +34,85 @@ const initial = (partner) => ({
   slot: { date: null, win: null }, upi: "",
   order: null, partner: partner || null,
 });
+
+// ---------------------------------------------------------------- shared logic (screens and Saathi use the same rules)
+export function derive(s) {
+  const baseSeg = s.bizType ? segOfType(s.bizType) : null;
+  const sitesMin = SITE_BANDS.find((b) => b.id === s.siteBand)?.min ?? 1;
+  const seg = baseSeg && sitesMin >= 2 && (baseSeg === "micro" || baseSeg === "prof") ? "multi" : baseSeg;
+  const cityTier = s.city ? tierOfCity(s.city) : 1;
+  const ctx = seg && s.empBand && s.siteBand
+    ? makeCtx({ seg, empBand: s.empBand, siteBand: s.siteBand, cityTier, gstinActive: s.gst?.status === "Active", fibreOk: s.fibreOk !== false, needs: s.needs })
+    : null;
+  const rec = ctx ? recommend(ctx, catalogue) : null;
+  const bundle = rec ? editBundle(rec.tiers[s.tier], s.edits, ctx, catalogue) : null;
+  const businessName = s.gst?.tradeName || s.bizOther?.labelLocal || s.bizOther?.text || (s.bizType ? bizLabel(s.lang, s.bizType) : "");
+  const MISSING_LABEL = { biz: "business type", gst: "GSTIN or 'no GST'", size: "staff and branches", loc: "city and pincode" };
+  const missing = ["biz", "gst", "size", "loc"].filter((st) => !doneFor(st, s, bundle)).map((st) => MISSING_LABEL[st]);
+  return { seg, sitesMin, ctx, rec, bundle, businessName, missing };
+}
+
+export function doneFor(step, s, bundle) {
+  return {
+    biz: !!s.bizType,
+    gst: !!s.gst || s.noGst,
+    size: !!s.empBand && !!s.siteBand,
+    loc: !!s.city && s.fibreOk !== null,
+    now: true,
+    needs: true,
+    plan: !!bundle && bundle.violations.length === 0,
+    consent: s.consent.req,
+    kyc: kycReady(s),
+    slot: !!s.slot.date && !!s.slot.win && /^[\w.\-]{2,}@[a-z]{2,}$/i.test(s.upi),
+  }[step] ?? true;
+}
+
+/** First screen up to `target` that still needs an answer. */
+export function resolveStep(target, s) {
+  const { bundle } = derive(s);
+  const idx = FLOW.indexOf(target);
+  for (let i = 0; i < idx; i++) if (!doneFor(FLOW[i], s, bundle)) return FLOW[i];
+  return target;
+}
+
+/** Apply Saathi's validated updates to the owner's answers. Lookups run here, in code. */
+export function applyUpdates(s, c) {
+  const patch = {}, notes = [];
+  if (c.bizType) {
+    patch.bizType = c.bizType;
+    patch.bizOther = c.bizDescription ? { text: c.bizDescription, labelLocal: c.bizDescription, via: "ai" } : null;
+  }
+  for (const k of ["empBand", "siteBand", "city", "internet", "spend"]) if (c[k]) patch[k] = c[k];
+  if (c.tier) { patch.tier = c.tier; patch.edits = { removed: [], qty: {} }; }
+  if (c.pincode) {
+    patch.pincode = c.pincode;
+    patch.fibreOk = fibreAvailable(c.pincode);
+    notes.push({ code: patch.fibreOk ? "fibreYes" : "fibreNo", value: c.pincode });
+  }
+  if (c.gstin) {
+    const v = validateGstinFormat(c.gstin);
+    if (!v.ok) notes.push({ code: "gstInvalid" });
+    else {
+      const g = lookupGstin(v.value, gstReg);
+      if (!g) notes.push({ code: "gstNotFound" });
+      else if (g.status !== "Active") { patch.gstInput = v.value; patch.gst = null; notes.push({ code: "gstInactive", value: g.status }); }
+      else {
+        Object.assign(patch, { gst: g, gstInput: v.value, noGst: false });
+        if (reference.cities.some((x) => x.city === g.city)) patch.city = g.city;
+        notes.push({ code: "gstFound", value: g.tradeName });
+      }
+    }
+  }
+  if (c.noGst && !patch.gst) Object.assign(patch, { noGst: true, gst: null, gstInput: "" });
+  if (c.needsAdd || c.needsRemove) {
+    const set = new Set(s.needs);
+    (c.needsAdd || []).forEach((n) => set.add(n));
+    (c.needsRemove || []).forEach((n) => set.delete(n));
+    patch.needs = [...set];
+    patch.edits = { removed: [], qty: {} };
+  }
+  return { patch, notes };
+}
 
 export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }) {
   const [s, setS] = useState(() => {
@@ -44,17 +129,12 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
   useEffect(() => { window.scrollTo?.(0, 0); }, [s.step]);
 
   // ------------------------------------------------------------ derived
-  const baseSeg = s.bizType ? segOfType(s.bizType) : null;
-  const sitesMin = SITE_BANDS.find((b) => b.id === s.siteBand)?.min ?? 1;
-  const seg = baseSeg && sitesMin >= 2 && (baseSeg === "micro" || baseSeg === "prof") ? "multi" : baseSeg;
-  const cityTier = s.city ? tierOfCity(s.city) : 1;
-  const gstActive = s.gst?.status === "Active";
-  const ctx = seg && s.empBand && s.siteBand
-    ? makeCtx({ seg, empBand: s.empBand, siteBand: s.siteBand, cityTier, gstinActive: gstActive, fibreOk: s.fibreOk !== false, needs: s.needs })
-    : null;
-  const rec = useMemo(() => (ctx ? recommend(ctx, catalogue) : null), [JSON.stringify(ctx)]);
-  const bundle = rec ? editBundle(rec.tiers[s.tier], s.edits, ctx, catalogue) : null;
-  const businessName = s.gst?.tradeName || bizLabel(s.lang, s.bizType || "");
+  const { seg, sitesMin, ctx, rec, bundle, businessName } = derive(s);
+  const [chatOpen, setChatOpen] = useState(false);
+  const navigate = (target) => {
+    if (!s.verified) return up({ step: "phone", pendingStep: target });
+    up((p) => ({ step: resolveStep(target, p) }));
+  };
 
   const info = { step: s.step, seg, gst: s.gst?.status ?? (s.noGst ? "none" : null), accel: !!s.accel, fibreOk: s.fibreOk,
     needs: s.needs.length, items: bundle?.items.length ?? 0, violations: bundle?.violations.length ?? 0,
@@ -62,18 +142,7 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
   useEffect(() => { onStep?.(info); }, [JSON.stringify(info)]);
 
   const stepIdx = FLOW.indexOf(s.step);
-  const canNext = {
-    biz: !!s.bizType,
-    gst: !!s.gst || s.noGst,
-    size: !!s.empBand && !!s.siteBand,
-    loc: !!s.city && s.fibreOk !== null,
-    now: true,
-    needs: true,
-    plan: !!bundle && bundle.violations.length === 0,
-    consent: s.consent.req,
-    kyc: kycReady(s),
-    slot: !!s.slot.date && !!s.slot.win && /^[\w.\-]{2,}@[a-z]{2,}$/i.test(s.upi),
-  }[s.step];
+  const canNext = doneFor(s.step, s, bundle);
 
   const next = () => {
     if (s.step === "slot") return placeOrder();
@@ -102,23 +171,25 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
     onLeadEvent?.({ kind: "order", id, business: businessName, seg, monthly: bundle.monthly, partner: s.partner });
   }
 
-  const requestCallback = () => {
+  const requestCallback = (quiet) => {
     onCallback?.({
       at: new Date().toISOString(), business: businessName || "New enquiry", type: s.bizType, seg: seg || "micro",
       lang: LANGS.find((l) => l.id === s.lang)?.label, stage: s.step, city: s.city, gstin: s.gst ? "Y" : "N",
       empBand: s.empBand, siteBand: s.siteBand, internet: s.internet, accel: !!s.accel, partner: s.partner,
       needs: s.needs, monthly: bundle?.monthly,
     });
-    setSheet("callbackDone");
+    if (quiet !== true) setSheet("callbackDone");
   };
 
   // ------------------------------------------------------------ screens
   const screens = {
     welcome: (
       <div className="screen">
-        <div className="screen-head" style={{ paddingTop: 12 }}>
+        <div className="hero">
+          <span className="hero-eyebrow">{t("brand")}</span>
           <h1>{t("tagline")}</h1>
-          <p className="sub">{t("startSub")}</p>
+          <p>{t("startSub")}</p>
+          <button className="hero-ask" onClick={() => setChatOpen(true)}><Sparkles size={16} /> {t("askSaathi")}</button>
         </div>
         {s.resumeOffer && (
           <div className="panel">
@@ -220,14 +291,14 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
     footer = (
       <button className="btn" disabled={s.otp !== "123456"} onClick={() => {
         const accel = s.phone === ACCEL_DEMO.phone ? { name: ACCEL_DEMO.name } : null;
-        up({ accel, step: "biz" });
+        up((p) => ({ accel, verified: true, pendingStep: null, step: resolveStep(p.pendingStep || "biz", { ...p, accel }) }));
         if (accel) setSheet("accel");
       }}>{t("verify")}</button>
     );
   else if (s.step !== "track")
     footer = (
       <div className="footer-row">
-        <button className="btn ghost" onClick={back} aria-label={t("back")}>←</button>
+        <button className="btn ghost" onClick={back} aria-label={t("back")}><ArrowLeft size={20} /></button>
         <button className="btn" disabled={!canNext} onClick={next}>
           {s.step === "plan" ? t("bookPlan") : s.step === "consent" ? t("agree") : s.step === "slot" ? t("placeOrder") : s.step === "now" && !s.internet && !s.spend ? t("skip") : t("next")}
         </button>
@@ -241,11 +312,25 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
         <div className="progress">
           <span className="small muted num">{t("stepOf", stepIdx + 1, FLOW.length)}</span>
           <div className="progress-bar" aria-hidden="true"><span style={{ width: `${((stepIdx + 1) / FLOW.length) * 100}%` }} /></div>
-          <button className="icon-btn" onClick={() => setSheet("callback")}>📞 <span className="small">{t("talkToPerson")}</span></button>
+          <button className="icon-btn" onClick={() => setSheet("callback")}><Phone size={15} /> <span className="small">{t("talkToPerson")}</span></button>
         </div>
       )}
       {screens[s.step]}
-      {footer && <div className="footer">{footer}</div>}
+      {(footer || s.step === "track") && (
+        <div className={footer ? "footer" : "fab-dock"}>
+          {!chatOpen && !["phone", "otp"].includes(s.step) && (
+            <button className="fab" onClick={() => setChatOpen(true)} aria-label={t("askSaathi")}>
+              <Sparkles size={18} strokeWidth={2} /><span>{t("askSaathi")}</span>
+            </button>
+          )}
+          {footer}
+        </div>
+      )}
+      {chatOpen && (
+        <Chat s={s} t={t} derive={derive} apply={applyUpdates}
+          commit={(patch) => up(patch)} navigate={navigate}
+          onCallback={() => requestCallback(true)} onClose={() => setChatOpen(false)} />
+      )}
 
       {sheet === "accel" && (
         <Sheet title={t("accelFound", s.accel?.name)} onClose={() => setSheet(null)}>
@@ -288,20 +373,81 @@ function kycReady(s) {
 function BizScreen({ s, up, t }) {
   const [more, setMore] = useState(false);
   const [q, setQ] = useState("");
+  const [other, setOther] = useState(!!s.bizOther);
   const all = reference.businessTypes.map((b) => b.type);
-  const top = ["Kirana store", "Pharmacy", "Salon", "Bakery", "Mobile repair shop", "Boutique", "Dental clinic", "Coaching centre", "CA firm", "Restaurant chain", "Textile unit", "Diagnostic lab"];
+  const top = ["Kirana store", "Pharmacy", "Salon", "Bakery", "Mobile repair shop", "Boutique", "Dental clinic", "Coaching centre", "CA firm", "Restaurant chain", "Textile unit"];
   const list = more ? all.filter((x) => (x + " " + bizLabel("hi", x)).toLowerCase().includes(q.toLowerCase())) : top;
   return (
     <div className="screen">
       <div className="screen-head"><h1>{t("bizTitle")}</h1></div>
-      <Mic lang={s.lang} t={t} onText={(text) => { const m = matchKeywords(text, VOICE_KEYWORDS)[0]; if (m) up({ bizType: m }); return !!m; }} />
+      <Mic lang={s.lang} t={t} onText={(text) => { const m = matchKeywords(text, VOICE_KEYWORDS)[0]; if (m) up({ bizType: m, bizOther: null }); return !!m; }} />
       {more && <input id="bizq" className="input" placeholder={t("bizSearch")} value={q} onChange={(e) => setQ(e.target.value)} />}
       <div className="grid-cards">
         {list.map((type) => (
-          <Opt key={type} icon={bizIcon(type)} pressed={s.bizType === type} onClick={() => up({ bizType: type })}>{bizLabel(s.lang, type)}</Opt>
+          <Opt key={type} icon={<BizIcon type={type} />} pressed={s.bizType === type && !s.bizOther} onClick={() => { up({ bizType: type, bizOther: null }); setOther(false); }}>{bizLabel(s.lang, type)}</Opt>
         ))}
+        {!more && (
+          <Opt icon={<Tile as={Plus} />} pressed={other || !!s.bizOther} onClick={() => setOther(true)}>{t("bizOther")}</Opt>
+        )}
       </div>
+      {other && <OtherBiz s={s} up={up} t={t} onList={() => { setOther(false); setMore(true); }} />}
       {!more && <button className="link-btn" onClick={() => setMore(true)}>{t("bizMore")} ({all.length})</button>}
+    </div>
+  );
+}
+
+// "Other": the owner describes the business; AI (or keywords, offline) picks the closest category;
+// the owner confirms. Only a type from the fixed list can ever be chosen.
+function OtherBiz({ s, up, t, onList }) {
+  const [desc, setDesc] = useState(s.bizOther?.text || "");
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState(s.bizOther ? { ...s.bizOther, type: s.bizType, seg: segOfType(s.bizType) } : null);
+  const [noMatch, setNoMatch] = useState(false);
+  const find = async () => {
+    if (!desc.trim()) return;
+    setBusy(true); setNoMatch(false); setRes(null);
+    let r = null;
+    try {
+      const llm = await getLLM();
+      if (llm) r = validateClassification(await llm.json(buildClassifyPrompt(desc, reference.businessTypes)), reference.businessTypes);
+    } catch { /* fall back to keywords */ }
+    if (!r) r = keywordClassify(desc, reference.businessTypes);
+    setBusy(false);
+    r ? setRes(r) : setNoMatch(true);
+  };
+  const confirmed = s.bizOther && res && s.bizType === res.type;
+  return (
+    <div className="panel other-panel">
+      <label htmlFor="bizother"><strong>{t("bizOtherTitle")}</strong></label>
+      <textarea id="bizother" className="input" rows={2} placeholder={t("bizOtherPh")} value={desc}
+        onChange={(e) => { setDesc(e.target.value); setRes(null); }} />
+      <div className="footer-row" style={{ alignItems: "center" }}>
+        <Mic lang={s.lang} t={t} onText={(heard) => { setDesc(heard); setRes(null); return true; }} />
+        <button className="btn small" style={{ flex: "0 0 auto", marginLeft: "auto" }} disabled={!desc.trim() || busy} onClick={find}>
+          <Sparkles size={16} /> {busy ? t("bizOtherThinking") : t("bizOtherFind")}
+        </button>
+      </div>
+      {noMatch && <Note kind="warn">{t("bizOtherNoMatch")}</Note>}
+      {res && (
+        <div className="match">
+          <span className="small muted">{t("bizOtherResult")}</span>
+          <div className="match-row">
+            <BizIcon type={res.type} />
+            <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+              <strong>{bizLabel(s.lang, res.type)}</strong>
+              <span className="small sub">{t("segName")[res.seg]}</span>
+            </div>
+            <span className={"pill " + (res.via === "ai" ? "brand" : "info")} style={{ marginLeft: "auto" }}>{res.via === "ai" ? t("viaAI") : t("viaKeywords")}</span>
+          </div>
+          {res.reason && s.lang === "en" && <span className="small muted">{res.reason}</span>}
+          {confirmed ? <Note kind="ok">{t("bizOtherYes")}</Note> : (
+            <div className="footer-row">
+              <button className="btn small" onClick={() => up({ bizType: res.type, bizOther: { text: desc.trim(), labelLocal: res.labelLocal || desc.trim(), labelEn: res.labelEn, via: res.via } })}>{t("bizOtherYes")}</button>
+              <button className="btn small ghost" onClick={onList}>{t("bizOtherNo")}</button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -336,13 +482,13 @@ function GstScreen({ s, up, t }) {
           {found.status !== "Active" && <Note kind="bad">{t("gstInactive", t("gstStatus")[found.status] || found.status)}</Note>}
           {found.status === "Active" && (
             <button className={"btn small" + (s.gst ? "" : "")} onClick={() => up({ gst: found })} aria-pressed={!!s.gst}>
-              {s.gst ? "✓ " : ""}{t("useThis")}
+              {s.gst && <Check size={16} />} {t("useThis")}
             </button>
           )}
         </div>
       )}
       <button className="btn ghost" aria-pressed={s.noGst} onClick={() => up({ noGst: true, gst: null, gstInput: "" })}>
-        {s.noGst ? "✓ " : ""}{t("gstNone")}
+        {s.noGst && <Check size={16} />} {t("gstNone")}
       </button>
       {s.noGst && <Note kind="info">{t("noGstNote")}</Note>}
       <div className="group" style={{ gap: 6 }}>
@@ -382,7 +528,7 @@ function LocScreen({ s, up, t }) {
         </div>
       </div>
       {s.fibreOk === true && <Note kind="ok">{t("fibreYes", s.pincode)}</Note>}
-      {s.fibreOk === false && <Note kind="info" icon="📡">{t("fibreNo", s.pincode)}</Note>}
+      {s.fibreOk === false && <Note kind="info" icon={<Radio size={16} />}>{t("fibreNo", s.pincode)}</Note>}
       <div className="chips"><Chip demo onClick={() => up({ pincode: "400008", fibreOk: null })}>Demo: area without fibre · 400008</Chip></div>
     </div>
   );
@@ -403,7 +549,7 @@ function NeedsScreen({ s, up, t, seg, sitesMin }) {
       }} />
       <div className="group" style={{ gap: 8 }}>
         {list.map((n) => (
-          <Opt key={n.id} row multi icon={n.icon} pressed={s.needs.includes(n.id)} onClick={() => toggle(n.id)}>{t("needs." + n.id)}</Opt>
+          <Opt key={n.id} row multi icon={<NeedIcon id={n.id} />} pressed={s.needs.includes(n.id)} onClick={() => toggle(n.id)}>{t("needs." + n.id)}</Opt>
         ))}
       </div>
       {!s.showMoreNeeds && rest.length > 0 && <button className="link-btn" onClick={() => up({ showMoreNeeds: true })}>{t("needsMore")}</button>}
@@ -441,11 +587,12 @@ function PlanScreen({ s, up, t, rec, bundle, ctx, businessName }) {
       <div className="tier-switch" role="group">
         {["basic", "recommended", "complete"].map((k) => (
           <button key={k} aria-pressed={s.tier === k} onClick={() => setTier(k)}>
+            {k === "recommended" && <Star size={12} className="best" aria-hidden="true" />}
             {t("tiers")[k]}<span className="num">{inr(rec.tiers[k].monthly)}</span>
           </button>
         ))}
       </div>
-      <div className="price-block">
+      <div className="price-block card-dark">
         <div className="price">{inr(bundle.monthly)}<small> {t("perMonth")}</small></div>
         <div className="facts">
           <span>{bundle.setup ? `${t("setupFee")}: ${inr(bundle.setup)}` : t("noSetup")}</span>
@@ -454,8 +601,8 @@ function PlanScreen({ s, up, t, rec, bundle, ctx, businessName }) {
         </div>
         <span className="small muted">{t("gstExtra")} {t("priceLocked")}</span>
       </div>
-      {spendMid && <Note kind="info" icon="₹">{t("vsToday", inr(spendMid), inr(bundle.monthly))}</Note>}
-      <button className="mic" onClick={() => speak(summary, s.lang)}><span aria-hidden="true">🔊</span> {t("listen")}</button>
+      {spendMid && <Note kind="info" icon={<IndianRupee size={16} />}>{t("vsToday", inr(spendMid), inr(bundle.monthly))}</Note>}
+      <button className="mic" onClick={() => speak(summary, s.lang)}><Volume2 size={16} /> {t("listen")}</button>
 
       <div className="group" style={{ gap: 8 }}>
         <span className="group-label">{t("whatsIncluded")}</span>
@@ -494,7 +641,7 @@ function PlanScreen({ s, up, t, rec, bundle, ctx, businessName }) {
           <strong>{t("lockedTitle")}</strong>
           {rec.locked.map((l) => (
             <div key={l.id} className="locked-row">
-              <span aria-hidden="true">🔒</span>
+              <Lock size={16} aria-hidden="true" style={{ flex: "0 0 auto", marginTop: 3 }} />
               <span><strong>{productName(s.lang, l.id)}</strong> · {lockReason(l.reasons[0])}</span>
             </div>
           ))}
@@ -569,7 +716,7 @@ function Upload({ t, value, onResult }) {
   return (
     <div className="group" style={{ gap: 6 }}>
       <span className="btn small ghost file-btn" style={{ alignSelf: "flex-start" }}>
-        📷 {t("upload")}
+        <Camera size={16} /> {t("upload")}
         <input type="file" accept="image/*" capture="environment" onChange={async (e) => {
           const f = e.target.files?.[0]; if (!f) return;
           setBusy(true); onResult(await check(f)); setBusy(false); e.target.value = "";
@@ -591,7 +738,7 @@ function KycScreen({ s, up, t, setSheet }) {
   const signer = s.accel?.name || prop?.person || "";
   const Row = ({ done, title, children }) => (
     <div className="doc-row">
-      <span className={"st " + (done ? "ok" : "todo")} aria-hidden="true">{done ? "✓" : ""}</span>
+      <span className={"st " + (done ? "ok" : "todo")} aria-hidden="true">{done ? <Check size={15} strokeWidth={3} /> : ""}</span>
       <div className="body"><strong>{title}</strong>{children}</div>
     </div>
   );
@@ -712,7 +859,7 @@ function TrackScreen({ s, up, t, bundle, onNew }) {
       <div className="timeline">
         {keys.map((k, i) => (
           <div key={k} className={"tl" + (i <= p ? " done" : i === p + 1 ? " now" : "")}>
-            <span className="dot">{i <= p ? "✓" : i + 1}</span>
+            <span className="dot">{i <= p ? <Check size={14} strokeWidth={3} /> : i + 1}</span>
             <div>
               <div className="t">{t("steps." + k)}</div>
               {k === "booked" && <div className="small sub">{when}</div>}

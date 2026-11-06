@@ -1,4 +1,5 @@
 import React, { useRef, useState } from "react";
+import { Mic as MicIcon, Check, AlertTriangle, X, Info } from "lucide-react";
 import { SPEECH_LANG } from "./i18n.js";
 
 export function Opt({ pressed, onClick, icon, children, row, multi }) {
@@ -6,7 +7,7 @@ export function Opt({ pressed, onClick, icon, children, row, multi }) {
     <button type="button" className={"card-opt" + (row ? " row" : "")} aria-pressed={!!pressed} onClick={onClick}>
       {icon && <span className="ic" aria-hidden="true">{icon}</span>}
       <span>{children}</span>
-      {pressed && multi && <span className="tick" aria-hidden="true">✓</span>}
+      {pressed && multi && <span className="tick" aria-hidden="true"><Check size={13} strokeWidth={3} /></span>}
     </button>
   );
 }
@@ -20,10 +21,11 @@ export function Chip({ pressed, onClick, children, demo }) {
 }
 
 export function Note({ kind = "info", icon, children }) {
-  const ic = icon ?? { ok: "✓", warn: "!", bad: "✕", info: "i" }[kind];
+  const Ic = { ok: Check, warn: AlertTriangle, bad: X, info: Info }[kind];
+  const ic = icon ?? <Ic size={16} strokeWidth={2.25} />;
   return (
     <div className={"note " + kind} role={kind === "bad" ? "alert" : "status"}>
-      <strong aria-hidden="true">{ic}</strong>
+      <span className="note-ic" aria-hidden="true">{ic}</span>
       <div className="nt">{children}</div>
     </div>
   );
@@ -42,7 +44,7 @@ export function Sheet({ title, children, onClose }) {
 
 /** Voice input: listens once and hands back the transcript. The screen decides which card it
  *  matches and highlights it, so the owner can see and correct the pick. */
-export function Mic({ lang, t, onText }) {
+export function Mic({ lang, t, onText, compact }) {
   const [state, setState] = useState("idle");
   const [msg, setMsg] = useState("");
   const recRef = useRef(null);
@@ -71,10 +73,10 @@ export function Mic({ lang, t, onText }) {
   };
   return (
     <div className="group" style={{ gap: 4 }}>
-      <button type="button" className={"mic" + (state === "on" ? " on" : "")} onClick={start}>
-        <span aria-hidden="true">🎤</span> {t("speak")}
+      <button type="button" className={"mic" + (state === "on" ? " on" : "") + (compact ? " compact" : "")} onClick={start} aria-label={t("speak")}>
+        <MicIcon size={16} />{!compact && <> {t("speak")}</>}
       </button>
-      {msg && <span className="small muted" aria-live="polite">{msg}</span>}
+      {msg && !compact && <span className="small muted" aria-live="polite">{msg}</span>}
     </div>
   );
 }
