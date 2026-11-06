@@ -407,3 +407,36 @@ td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
 .chat-resume { font-family: var(--display); font-size: 1rem; color: var(--brand); }
 .chat-facts { display: flex; flex-wrap: wrap; gap: 6px; }
 .chat-facts .pill { white-space: normal; text-align: left; }
+
+/* ---------------------------------------------------------------- branches */
+.tile.gold { background: linear-gradient(150deg, var(--gold-soft), var(--surface)); color: var(--gold); }
+.branch { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.branch.open { box-shadow: 0 1px 0 var(--line); }
+.branch-head { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.branch-head.static { cursor: default; }
+.branch-head .tile { width: 36px; height: 36px; border-radius: 11px; }
+.branch-name { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.branch-name strong { overflow-wrap: anywhere; max-width: 100%; line-height: 1.25; }
+.branch-amt { font-weight: 700; white-space: nowrap; }
+.branch .chev { color: var(--ink-3); transition: transform .2s; flex: 0 0 auto; }
+.branch.open .chev { transform: rotate(180deg); }
+.branch-body { display: flex; flex-direction: column; gap: 10px; padding: 0 12px 12px; }
+.branch-body .items { border-radius: 12px; }
+.branch-count { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.build-own { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 1.5px dashed var(--line); border-radius: var(--radius); background: var(--surface); padding: 10px 12px; cursor: pointer; color: inherit; font: inherit; }
+.build-own[aria-pressed="true"] { border-style: solid; border-color: var(--brand); background: var(--brand-soft); }
+.build-own .tile { width: 36px; height: 36px; border-radius: 11px; }
+.add-list { display: flex; flex-direction: column; gap: 8px; max-height: 58vh; overflow: auto; }
+.add-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
+.add-row.locked { opacity: .72; }
+.add-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.add-row .btn { flex: 0 0 auto; }
+.bill-card { display: flex; flex-direction: column; gap: 8px; }
+.spend { display: flex; flex-direction: column; gap: 8px; }
+.spend-bar { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: rgba(255, 255, 255, .15); }
+.spend-bar .seg { display: block; height: 100%; }
+.spend-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .82rem; color: var(--on-dark-2); }
+.spend-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.spend-legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.seg.s0 { background: #ff8a7a; } .seg.s1 { background: #ffd27a; } .seg.s2 { background: #8fd3c1; }
+.seg.s3 { background: #9db8ff; } .seg.s4 { background: #e0a3ff; } .seg.sx { background: rgba(255, 255, 255, .55); }

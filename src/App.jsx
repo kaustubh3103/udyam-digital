@@ -48,7 +48,7 @@ export default function App() {
               partner={partner}
               onStep={setInfo}
               onCallback={(c) => setCallbacks((x) => [...x, c])}
-              onLeadEvent={(e) => e.kind === "order" && setOrders((x) => [...x, e])}
+              onLeadEvent={(e) => e.kind === "order" ? setOrders((x) => [...x, e]) : e.kind === "orderUpdate" && setOrders((x) => x.map((o) => (o.id === e.id ? { ...o, monthly: e.monthly, branches: e.branches } : o)))}
             />
             <Explainer info={info} />
           </div>

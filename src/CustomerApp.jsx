@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Phone, ArrowLeft, Volume2, Lock, Camera, Radio, Sparkles, Plus, IndianRupee, Star, Check } from "lucide-react";
+import { Phone, ArrowLeft, Volume2, Lock, Camera, Radio, Sparkles, Plus, IndianRupee, Star, Check, Wrench } from "lucide-react";
 import { LANGS, makeT, productName, bizLabel, VOICE_KEYWORDS, NEED_KEYWORDS } from "./i18n.js";
 import { Opt, Chip, Note, Sheet, Mic, speak, matchKeywords } from "./ui.jsx";
 import { BizIcon, NeedIcon, Tile } from "./icons.jsx";
@@ -7,11 +7,14 @@ import Chat from "./Chat.jsx";
 import { GENERIC_TYPES } from "./ai/classify.js";
 import { catalogue, gstReg, udyamReg, reference, inr, tierOfCity, segOfType, fibreAvailable, store, maskGstin } from "./data.js";
 import { EMP_BANDS, SITE_BANDS, needsFor, makeCtx, recommend, editBundle } from "./engine/advisor.js";
+import { BAND_RANGE, fitBranches, splitBase, priceBranches, priceOrder, isBranchItem, addableProducts } from "./engine/branches.js";
+import { BranchCard, SharedCard, AddServiceSheet, MyBranches } from "./Branches.jsx";
 import { validateGstinFormat, lookupGstin, findUdyamByBusiness, lookupUdyam, proprietorOf, sharpnessFromImageData, BLUR_THRESHOLD } from "./engine/kyc.js";
 
 const FLOW = ["biz", "gst", "size", "loc", "now", "needs", "plan", "consent", "kyc", "slot"];
 const SAVE_KEY = "udyam-digital:session";
-const QTY_EDITABLE = new Set(["P07", "P08", "P12", "P16", "P20", "P23", "P24", "P25"]);
+const QTY_EDITABLE = new Set(["P07", "P08", "P12", "P16", "P19", "P20", "P23", "P24", "P25"]);
+const NO_EDITS = () => ({ removed: [], qty: {}, added: [] });
 const SPEND_MID = { s1: 700, s2: 2000, s3: 6500, s4: 15000 };
 const SAMPLE_GSTINS = [
   { label: "Active · Bakery, Ludhiana", g: "03PJNXS4821G1ZB" },
@@ -27,7 +30,7 @@ const initial = (partner) => ({
   bizType: null, bizOther: null, gstInput: "", gst: null, noGst: false,
   empBand: null, siteBand: null, city: null, pincode: "", fibreOk: null,
   internet: null, spend: null, needs: [], showMoreNeeds: false,
-  tier: "recommended", edits: { removed: [], qty: {} },
+  tier: "recommended", edits: { removed: [], qty: {}, added: [] }, branches: null,
   consent: { req: false, wa: true, offers: false, at: null },
   kyc: { udyamInput: "", udyam: null, udyamTried: false, digi: false, addrDiff: false, bill: null, regDoc: null, signed: false },
   slot: { date: null, win: null }, upi: "",
@@ -40,15 +43,21 @@ export function derive(s) {
   const sitesMin = SITE_BANDS.find((b) => b.id === s.siteBand)?.min ?? 1;
   const seg = baseSeg && sitesMin >= 2 && (baseSeg === "micro" || baseSeg === "prof") ? "multi" : baseSeg;
   const cityTier = s.city ? tierOfCity(s.city) : 1;
+  const [lo, hi] = BAND_RANGE[s.siteBand] ?? [1, 1];
+  const count = Math.max(lo, Math.min(hi, s.branches?.length || lo));
   const ctx = seg && s.empBand && s.siteBand
-    ? makeCtx({ seg, empBand: s.empBand, siteBand: s.siteBand, cityTier, gstinActive: s.gst?.status === "Active", fibreOk: s.fibreOk !== false, needs: s.needs })
+    ? makeCtx({ seg, empBand: s.empBand, siteBand: s.siteBand, cityTier, gstinActive: s.gst?.status === "Active", fibreOk: s.fibreOk !== false, needs: s.needs, sites: count })
     : null;
   const rec = ctx ? recommend(ctx, catalogue) : null;
-  const bundle = rec ? editBundle(rec.tiers[s.tier], s.edits, ctx, catalogue) : null;
+  // the tier with the owner's own edits, then split branch by branch and priced again
+  const edited = rec ? editBundle(rec.tiers[s.tier], s.edits, ctx, catalogue) : null;
+  const split = edited ? splitBase(edited, ctx.sites) : null;
+  const branches = ctx ? fitBranches(s.branches, ctx.sites) : [];
+  const bundle = split ? priceBranches(split, branches, catalogue, ctx) : null;
   const businessName = s.gst?.tradeName || s.bizOther?.labelLocal || s.bizOther?.text || (s.bizType ? bizLabel(s.lang, s.bizType) : "");
   const MISSING_LABEL = { biz: "business type", gst: "GSTIN or 'no GST'", size: "staff and branches", loc: "city and pincode" };
   const missing = ["biz", "gst", "size", "loc"].filter((st) => !doneFor(st, s, bundle)).map((st) => MISSING_LABEL[st]);
-  return { seg, sitesMin, ctx, rec, bundle, businessName, missing };
+  return { seg, sitesMin, ctx, rec, bundle, split, branches, businessName, missing };
 }
 
 export function doneFor(step, s, bundle) {
@@ -82,7 +91,8 @@ export function applyUpdates(s, c) {
     patch.bizOther = c.bizDescription ? { text: c.bizDescription, labelLocal: c.bizDescription, via: "ai" } : null;
   }
   for (const k of ["empBand", "siteBand", "city", "internet", "spend"]) if (c[k]) patch[k] = c[k];
-  if (c.tier) { patch.tier = c.tier; patch.edits = { removed: [], qty: {} }; }
+  if (c.siteBand && c.siteBand !== s.siteBand) patch.branches = null;
+  if (c.tier) { patch.tier = c.tier; patch.edits = NO_EDITS(); }
   if (c.pincode) {
     patch.pincode = c.pincode;
     patch.fibreOk = fibreAvailable(c.pincode);
@@ -108,7 +118,7 @@ export function applyUpdates(s, c) {
     (c.needsAdd || []).forEach((n) => set.add(n));
     (c.needsRemove || []).forEach((n) => set.delete(n));
     patch.needs = [...set];
-    patch.edits = { removed: [], qty: {} };
+    patch.edits = NO_EDITS();
   }
   return { patch, notes };
 }
@@ -128,7 +138,7 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
   useEffect(() => { window.scrollTo?.(0, 0); }, [s.step]);
 
   // ------------------------------------------------------------ derived
-  const { seg, sitesMin, ctx, rec, bundle, businessName } = derive(s);
+  const { seg, sitesMin, ctx, rec, bundle, split, branches, businessName } = derive(s);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMsgs, setChatMsgs] = useState([]);
   const navigate = (target) => {
@@ -167,8 +177,11 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
 
   function placeOrder() {
     const id = "AB" + String(Math.floor(100000 + Math.random() * 899999));
-    up({ order: { id, progress: 2, at: new Date().toISOString() }, step: "track" });
-    onLeadEvent?.({ kind: "order", id, business: businessName, seg, monthly: bundle.monthly, partner: s.partner });
+    // the booked plan is kept as a snapshot, branch by branch, so it can be managed after booking
+    const snap = { split, branches: branches.map((b) => ({ ...b, qty: { ...b.qty }, off: [...(b.off || [])] })), ctx: { ...ctx } };
+    if (snap.branches.length === 1 && !snap.branches[0].name) snap.branches[0].name = s.gst?.tradeName || businessName || "";
+    up({ order: { id, progress: 2, at: new Date().toISOString(), ...snap }, step: "track" });
+    onLeadEvent?.({ kind: "order", id, business: businessName, seg, monthly: bundle.monthly, branches: snap.branches.length, partner: s.partner });
   }
 
   const requestCallback = (quiet) => {
@@ -252,7 +265,7 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
         </div>
         <div className="group">
           <span className="group-label">{t("sites")}</span>
-          <div className="chips">{SITE_BANDS.map((b) => <Chip key={b.id} pressed={s.siteBand === b.id} onClick={() => up({ siteBand: b.id })}>{t("siteB." + b.id)}</Chip>)}</div>
+          <div className="chips">{SITE_BANDS.map((b) => <Chip key={b.id} pressed={s.siteBand === b.id} onClick={() => up({ siteBand: b.id, branches: null, edits: NO_EDITS() })}>{t("siteB." + b.id)}</Chip>)}</div>
         </div>
       </div>
     ),
@@ -274,11 +287,11 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
     ),
 
     needs: <NeedsScreen s={s} up={up} t={t} seg={seg} sitesMin={sitesMin} />,
-    plan: bundle && <PlanScreen s={s} up={up} t={t} rec={rec} bundle={bundle} ctx={ctx} businessName={businessName} />,
+    plan: bundle && <PlanScreen s={s} up={up} t={t} rec={rec} bundle={bundle} ctx={ctx} split={split} branches={branches} businessName={businessName} />,
     consent: <ConsentScreen s={s} up={up} t={t} />,
     kyc: <KycScreen s={s} up={up} t={t} setSheet={setSheet} />,
     slot: bundle && <SlotScreen s={s} up={up} t={t} bundle={bundle} />,
-    track: <TrackScreen s={s} up={up} t={t} bundle={bundle} onNew={() => { store.del(SAVE_KEY); setChatMsgs([]); setS(initial(s.partner)); }} />,
+    track: <TrackScreen s={s} up={up} t={t} bundle={bundle} onLeadEvent={onLeadEvent} onNew={() => { store.del(SAVE_KEY); setChatMsgs([]); setS(initial(s.partner)); }} />,
   };
 
   // ------------------------------------------------------------ footer
@@ -517,7 +530,7 @@ function LocScreen({ s, up, t }) {
 function NeedsScreen({ s, up, t, seg, sitesMin }) {
   const { primary, rest } = needsFor(seg || "micro", sitesMin);
   const list = s.showMoreNeeds ? [...primary, ...rest] : primary;
-  const toggle = (id) => up((p) => ({ needs: p.needs.includes(id) ? p.needs.filter((x) => x !== id) : [...p.needs, id], edits: { removed: [], qty: {} } }));
+  const toggle = (id) => up((p) => ({ needs: p.needs.includes(id) ? p.needs.filter((x) => x !== id) : [...p.needs, id], edits: NO_EDITS() }));
   return (
     <div className="screen">
       <div className="screen-head"><h1>{t("needsTitle")}</h1><p className="sub">{t("needsSub")}</p></div>
@@ -538,24 +551,45 @@ function NeedsScreen({ s, up, t, seg, sitesMin }) {
 }
 
 // ---------------------------------------------------------------- plan
-function PlanScreen({ s, up, t, rec, bundle, ctx, businessName }) {
+function PlanScreen({ s, up, t, rec, bundle, ctx, split, branches, businessName }) {
   const [faq, setFaq] = useState(null);
+  const [adding, setAdding] = useState(false);
   const base = rec.tiers[s.tier];
-  const removed = new Set(s.edits.removed);
+  const edits = s.edits;
+  const custom = !!edits.custom;
+  const removed = new Set(edits.removed);
+  const added = edits.added || [];
   const linkId = base.items[0].id;
-  const setTier = (tier) => up({ tier, edits: { removed: [], qty: {} } });
+  const [lo, hi] = BAND_RANGE[s.siteBand] ?? [1, 1];
+  const multi = hi >= 2;
+  const rows = [...base.items, ...added.filter((a) => !base.items.some((i) => i.id === a.id))];
+
+  const setTier = (tier) => up({ tier, edits: NO_EDITS() });
+  const buildOwn = () => up({ tier: "basic", edits: { ...NO_EDITS(), custom: true, removed: rec.tiers.basic.items.slice(1).map((i) => i.id) } });
   const setQty = (id, q) => up((p) => ({ edits: { ...p.edits, qty: { ...p.edits.qty, [id]: Math.max(1, Math.min(50, q)) } } }));
   const toggle = (id) => up((p) => {
-    // removing an item that others depend on is not allowed, so the bundle always stays valid
+    // an item the owner added is simply taken out again; a plan item is switched off or back on
+    if ((p.edits.added || []).some((a) => a.id === id)) return { edits: { ...p.edits, added: p.edits.added.filter((a) => a.id !== id) } };
     const r = new Set(p.edits.removed);
     r.has(id) ? r.delete(id) : r.add(id);
     return { edits: { ...p.edits, removed: [...r] } };
   });
+  const addProduct = (id, qty) => {
+    up((p) => base.items.some((i) => i.id === id)
+      ? { edits: { ...p.edits, removed: p.edits.removed.filter((x) => x !== id) } }
+      : { edits: { ...p.edits, added: [...(p.edits.added || []), { id, qty, why: { key: "added" } }] } });
+    setAdding(false);
+  };
+  const setBranches = (fn) => up((p) => ({ branches: fn(fitBranches(p.branches, ctx.sites)) }));
+  const editBranch = (key, fn) => setBranches((list) => list.map((b) => (b.key === key ? fn(b) : b)));
+  const setCount = (n) => up((p) => ({ branches: fitBranches(p.branches, Math.max(lo, Math.min(hi, n))) }));
+
   const whyText = (w) => w.key === "need" ? t("why.need", t("needs." + w.need)) : t("why." + w.key);
   const hasBackup = bundle.items.some((i) => i.id === "P09");
   const lockReason = (r) => r.code === "employees" || r.code === "sites" ? t("lockReason." + r.code, r.min) : t("lockReason." + r.code);
-  const summary = `${t("tiers")[s.tier]}. ${inr(bundle.monthly)} ${t("perMonth")}. ` + bundle.items.map((i) => productName(s.lang, i.id) + (i.qty > 1 ? ` × ${i.qty}` : "")).join(", ");
+  const summary = `${custom ? t("buildOwn") : t("tiers")[s.tier]}. ${inr(bundle.monthly)} ${t("perMonth")}. ` + bundle.items.map((i) => productName(s.lang, i.id) + (i.qty > 1 ? ` × ${i.qty}` : "")).join(", ");
   const spendMid = SPEND_MID[s.spend];
+  const addable = adding ? addableProducts(bundle, ctx, catalogue).filter((x) => !base.items.some((i) => i.id === x.product.id && !removed.has(x.product.id))) : [];
 
   return (
     <div className="screen">
@@ -565,12 +599,17 @@ function PlanScreen({ s, up, t, rec, bundle, ctx, businessName }) {
       </div>
       <div className="tier-switch" role="group">
         {["basic", "recommended", "complete"].map((k) => (
-          <button key={k} aria-pressed={s.tier === k} onClick={() => setTier(k)}>
+          <button key={k} aria-pressed={s.tier === k && !custom} onClick={() => setTier(k)}>
             {k === "recommended" && <Star size={12} className="best" aria-hidden="true" />}
             {t("tiers")[k]}<span className="num">{inr(rec.tiers[k].monthly)}</span>
           </button>
         ))}
       </div>
+      <button className="build-own" aria-pressed={custom} onClick={buildOwn}>
+        <Tile as={Wrench} size={18} />
+        <span style={{ display: "flex", flexDirection: "column" }}><strong>{t("buildOwn")}</strong><span className="small sub">{t("buildOwnSub")}</span></span>
+      </button>
+      {custom && <Note kind="info">{t("buildOwnOn")}</Note>}
       <div className="price-block card-dark">
         <div className="price">{inr(bundle.monthly)}<small> {t("perMonth")}</small></div>
         <div className="facts">
@@ -586,18 +625,20 @@ function PlanScreen({ s, up, t, rec, bundle, ctx, businessName }) {
       <div className="group" style={{ gap: 8 }}>
         <span className="group-label">{t("whatsIncluded")}</span>
         <div className="items">
-          {base.items.map((it) => {
+          {rows.map((it) => {
             const off = removed.has(it.id);
             const cur = bundle.items.find((b) => b.id === it.id);
-            const qty = s.edits.qty[it.id] ?? it.qty;
+            const perBranch = multi && isBranchItem(it.id);
+            const qtyEditable = QTY_EDITABLE.has(it.id) && !perBranch;
+            const qty = perBranch ? (cur?.qty ?? it.qty) : (edits.qty[it.id] ?? it.qty);
             return (
-              <div key={it.id} className={"item" + (off ? " off" : "")}>
-                <span className="nm">{productName(s.lang, it.id)}{qty > 1 && !QTY_EDITABLE.has(it.id) ? ` × ${qty}` : ""}</span>
+              <div key={it.id} className={"item" + (off ? " off" : "")} data-item={it.id}>
+                <span className="nm">{productName(s.lang, it.id)}{qty > 1 && !qtyEditable ? ` × ${qty}` : ""}</span>
                 <span className="amt">{off ? "—" : inr(cur?.monthly ?? 0)}</span>
-                <span className="why">{whyText(it.why)}</span>
-                {(QTY_EDITABLE.has(it.id) || it.id !== linkId) && (
+                <span className="why">{perBranch && !off ? t("setPerBranch", ctx.sites) : whyText(it.why)}</span>
+                {(qtyEditable || it.id !== linkId) && (
                   <div className="ctl">
-                    {QTY_EDITABLE.has(it.id) && !off && (
+                    {qtyEditable && !off && (
                       <span className="stepper" aria-label={t("qty")}>
                         <button onClick={() => setQty(it.id, qty - 1)} aria-label="−">−</button>
                         <span className="num">{qty}</span>
@@ -613,7 +654,31 @@ function PlanScreen({ s, up, t, rec, bundle, ctx, businessName }) {
             );
           })}
         </div>
+        <button className="btn ghost small" style={{ alignSelf: "flex-start" }} onClick={() => setAdding(true)}><Plus size={16} /> {t("addService")}</button>
       </div>
+      {adding && <AddServiceSheet t={t} lang={s.lang} list={addable} lockReason={lockReason} onAdd={addProduct} onClose={() => setAdding(false)} />}
+
+      {multi && (
+        <div className="group" style={{ gap: 8 }}>
+          <span className="group-label">{t("branchesTitle")}</span>
+          <span className="small sub">{t("branchesSub")}</span>
+          <div className="branch-count">
+            <span>{t("branchCount")}</span>
+            <span className="stepper" aria-label={t("branchCount")}>
+              <button onClick={() => setCount(ctx.sites - 1)} disabled={ctx.sites <= lo} aria-label="−">−</button>
+              <span className="num" id="branchcount">{ctx.sites}</span>
+              <button onClick={() => setCount(ctx.sites + 1)} disabled={ctx.sites >= hi} aria-label="+">+</button>
+            </span>
+          </div>
+          {bundle.branches.map((b, i) => (
+            <BranchCard key={b.key} t={t} lang={s.lang} raw={branches[i]} priced={b} defaults={split.perBranch} index={i} open={i === 0}
+              onRename={(v) => editBranch(b.key, (x) => ({ ...x, name: v }))}
+              onQty={(id, q) => editBranch(b.key, (x) => ({ ...x, qty: { ...x.qty, [id]: q } }))}
+              onToggle={(id) => editBranch(b.key, (x) => ({ ...x, off: x.off?.includes(id) ? x.off.filter((y) => y !== id) : [...(x.off || []), id] }))} />
+          ))}
+          <SharedCard t={t} lang={s.lang} shared={bundle.shared} />
+        </div>
+      )}
 
       {rec.locked.length > 0 && (
         <div className="panel locked">
@@ -823,7 +888,7 @@ function SlotScreen({ s, up, t, bundle }) {
 }
 
 // ---------------------------------------------------------------- tracker
-function TrackScreen({ s, up, t, bundle, onNew }) {
+function TrackScreen({ s, up, t, bundle, onNew, onLeadEvent }) {
   const keys = ["placed", "verified", "booked", "tech", "live"];
   const p = s.order?.progress ?? 0;
   const when = s.slot.date ? `${fmtDate(s.slot.date, s.lang)}, ${t("windows." + s.slot.win)}` : "";
@@ -833,7 +898,7 @@ function TrackScreen({ s, up, t, bundle, onNew }) {
     <div className="screen">
       <div className="screen-head">
         <h1>{t("trackTitle")}</h1>
-        <p className="sub num">{t("orderId", s.order?.id)}{bundle ? ` · ${inr(bundle.monthly)} ${t("perMonth")}` : ""}</p>
+        <p className="sub num">{t("orderId", s.order?.id)}{s.order?.split ? ` · ${inr(priceOrder(s.order, catalogue).monthly)} ${t("perMonth")}` : bundle ? ` · ${inr(bundle.monthly)} ${t("perMonth")}` : ""}</p>
       </div>
       <div className="timeline">
         {keys.map((k, i) => (
@@ -853,6 +918,7 @@ function TrackScreen({ s, up, t, bundle, onNew }) {
           <div className="wa">{msgs.map((m) => <div key={m.k} className="wa-msg">{m.text}</div>)}</div>
         </div>
       )}
+      <MyBranches s={s} up={up} t={t} onChanged={(o) => onLeadEvent?.({ kind: "orderUpdate", id: o.id, monthly: priceOrder(o, catalogue).monthly, branches: o.branches.length })} />
       <div className="footer-row">
         {p < 4 ? <button className="btn ghost" style={{ flex: 1 }} onClick={() => up((x) => ({ order: { ...x.order, progress: x.order.progress + 1 } }))}>{t("simulate")}</button>
           : <Note kind="ok">{t("done")}</Note>}

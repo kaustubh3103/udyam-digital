@@ -10,11 +10,20 @@ All data is synthetic and comes from the hackathon pack. "Accel Telecom" is the 
 
 | View | What it does |
 | --- | --- |
-| **Owner app** (`#app`) | Language → phone OTP → business type → GSTIN lookup → size → pincode serviceability → today's setup → needs → plan (Basic / Recommended / Complete) → consent → smart KYC → install slot + UPI AutoPay → order tracker with WhatsApp updates |
+| **Owner app** (`#app`) | Language → phone OTP → business type → GSTIN lookup → size → pincode serviceability → today's setup → needs → plan (Basic / Recommended / Complete, or **build your own**) → consent → smart KYC → install slot + UPI AutoPay → order tracker with WhatsApp updates and **My branches** |
 | **KYC check** (`#kyc`) | The 12 specimen applicants (K01–K12), OCR-read and validated against the mock GST and Udyam registries, with plain-language results |
 | **Sales & partner desk** (`#desk`) | Callback queue ranked by a lead score, assisted sign-up for partners and field sales, drop-off analysis, rule-breach comparison, segment economics |
 
 Hindi and English are complete; Marathi covers the first screens and falls back to Hindi. Seven more languages from the leads data are listed as coming soon.
+
+### Customise the plan, branch by branch
+
+- **Change any plan:** remove items, change quantities, or tap **Add a service** to see everything else in the catalogue. Locked services say what's needed (for example GST or 10+ staff).
+- **Build my own plan:** start with only the internet line and add services one by one.
+- **Branch by branch** (2+ branches): set the exact number of branches, name each one, and choose what each gets (for example 6 cameras at the main shop, no billing tablet at a small outlet). Shared items (SIMs, email, WhatsApp, website...) are bought once for the whole business.
+- **My branches** (after booking): the combined monthly bill split by branch, each branch's services, cost and install status, **Add a branch** (copies a branch you choose and shows the extra cost), and changes to any branch. One bill and one support number for all of them. Saathi can answer "how much am I paying for each branch?".
+
+Every change is priced from the catalogue and re-checked against every rule, per branch and for the whole business (`src/engine/branches.js`).
 
 ### Demo shortcuts
 
@@ -56,6 +65,7 @@ Everything else is deterministic:
 
 ```
 Replay: 5000 leads → 15000 bundles, 0 eligibility violations, 752 requests shown as locked with a reason
+Branches: 4000 customised plans (build-your-own, removals, extras, per-branch changes, added branches): 0 violations, 0 totals off, 0 prices not from catalogue
 K01  action    fail:gstinStatus, warn:udyamBlankNotFound
 K02  verified  info:deskewed
 K04  action    fail:blurry

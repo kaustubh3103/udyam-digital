@@ -3,6 +3,7 @@ import { Sparkles, X, Send, ArrowRight, PhoneCall, CircleCheck } from "lucide-re
 import { getLLM, disableLLM, PERMANENT } from "./ai/llm.js";
 import { RULES, buildContext, validateUpdates, validateReply, allowedAmounts, checkPrices } from "./ai/assistant.js";
 import { catalogue, reference, inr } from "./data.js";
+import { priceOrder } from "./engine/branches.js";
 import { PRODUCT_NAMES, productName } from "./i18n.js";
 import { Mic } from "./ui.jsx";
 
@@ -87,7 +88,7 @@ export default function Chat({ s, t, derive, apply, commit, navigate, onCallback
       if (Object.keys(patch).length) commit(patch);
       let reply = v.reply || t("chatFallbackReply");
       let showPlan = v.showPlan && !!d.bundle;
-      const guard = checkPrices(reply, allowedAmounts(catalogue, [before.rec, d.rec]));
+      const guard = checkPrices(reply, allowedAmounts(catalogue, [before.rec, d.rec, before.bundle, d.bundle, st.order?.split ? priceOrder(st.order, catalogue) : null]));
       if (!guard.ok) { reply = t("chatPriceGuard"); showPlan = !!d.bundle; }
       if (v.callback) onCallback();
       setMsgs((m) => [...m, {
@@ -222,5 +223,14 @@ function describePlan(st, d) {
   return {
     tierName, monthly: d.bundle.monthly, setup: d.bundle.setup, contractMonths: d.bundle.contractMonths, installDays: d.bundle.installDays,
     items: d.bundle.items, others, locked: d.rec.locked.map((l) => names[l.id]).join(", "),
+    branches: d.bundle.branches?.length > 1 ? branchText(d.bundle) : "",
+    booked: st.order?.split ? branchText(priceOrder(st.order, catalogue)) : "",
   };
+}
+
+function branchText(p) {
+  const names = PRODUCT_NAMES.en;
+  const list = (items) => items.map((i) => `${names[i.id]} × ${i.qty}`).join(", ");
+  return p.branches.map((b, i) => `${(b.name || "").trim() || `Branch ${i + 1}`}: ${list(b.items)} = ₹${b.monthly}/month`).join(" | ")
+    + ` | Shared by all branches: ${list(p.shared.items) || "nothing"} = ₹${p.shared.monthly}/month | Total ₹${p.monthly}/month`;
 }

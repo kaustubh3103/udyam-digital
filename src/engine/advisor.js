@@ -48,9 +48,11 @@ export function needsFor(seg, sitesMin) {
 
 /** Turn tap answers into the context the rules need. Ranges use their lower bound, so a
  *  range can never unlock a product the business is not eligible for. */
-export function makeCtx({ seg, empBand, siteBand, cityTier, gstinActive, fibreOk = true, needs = [] }) {
-  const e = empFromBand(empBand), s = sitesFromBand(siteBand);
-  return { seg, cityTier, employees: e.min, sites: s.min, lines: Math.max(e.lines, seg === "multi" ? s.min : 1),
+export function makeCtx({ seg, empBand, siteBand, cityTier, gstinActive, fibreOk = true, needs = [], sites: exact }) {
+  // `sites` is the exact branch count when the owner has listed their branches (always inside the band they tapped)
+  const e = empFromBand(empBand), b = sitesFromBand(siteBand);
+  const sites = exact && exact >= b.min ? exact : b.min;
+  return { seg, cityTier, employees: e.min, sites, lines: Math.max(e.lines, seg === "multi" ? sites : 1),
            gstinActive: !!gstinActive, fibreOk, needs };
 }
 
@@ -198,10 +200,11 @@ export function verifyBundle(bundle, ctx) {
 
 /** Re-price after the owner toggles add-ons or changes a quantity, then re-verify. */
 export function editBundle(bundle, edits, ctx, catalogue) {
-  const items = bundle.items
-    .map((i) => ({ id: i.id, why: i.why, qty: edits.qty?.[i.id] ?? i.qty }))
+  const base = bundle.items.map((i) => ({ id: i.id, why: i.why, qty: i.qty }));
+  for (const add of edits.added ?? []) if (!base.find((i) => i.id === add.id)) base.push({ id: add.id, why: add.why ?? { key: "added" }, qty: add.qty });
+  const items = base
+    .map((i) => ({ ...i, qty: edits.qty?.[i.id] ?? i.qty }))
     .filter((i) => !edits.removed?.includes(i.id) && i.qty > 0);
-  for (const add of edits.added ?? []) if (!items.find((i) => i.id === add.id)) items.push(add);
   const priced = priceBundle(items, catalogue);
   return { ...priced, violations: verifyBundle(priced, ctx) };
 }
