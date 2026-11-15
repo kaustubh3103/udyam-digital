@@ -252,6 +252,7 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
     otp: (
       <div className="screen">
         <div className="screen-head"><h1>{t("otpTitle")}</h1><p className="sub">{t("otpSent", s.phone)}</p></div>
+        <button className="link-btn" id="changenumber" onClick={() => up({ step: "phone", otp: "" })}>{t("changeNumber")}</button>
         <input id="otp" className="input num" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
           value={s.otp} onChange={(e) => up({ otp: e.target.value.replace(/\D/g, "") })} style={{ letterSpacing: ".4em", fontSize: "1.4rem", textAlign: "center" }} />
         <p className="small muted">{t("otpDemo")}</p>
@@ -306,14 +307,22 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
   if (s.step === "welcome")
     footer = <button className="btn" onClick={() => go("phone")}>{t("start")}</button>;
   else if (s.step === "phone")
-    footer = <button className="btn" disabled={!/^[6-9]\d{9}$/.test(s.phone)} onClick={() => up({ step: "otp", otp: "" })}>{t("sendOtp")}</button>;
+    footer = (
+      <div className="footer-row">
+        <button className="btn ghost" onClick={() => go("welcome")} aria-label={t("back")}><ArrowLeft size={20} /></button>
+        <button className="btn" disabled={!/^[6-9]\d{9}$/.test(s.phone)} onClick={() => up({ step: "otp", otp: "" })}>{t("sendOtp")}</button>
+      </div>
+    );
   else if (s.step === "otp")
     footer = (
-      <button className="btn" disabled={s.otp !== "123456"} onClick={() => {
-        const accel = s.phone === ACCEL_DEMO.phone ? { name: ACCEL_DEMO.name } : null;
-        up((p) => ({ accel, verified: true, pendingStep: null, step: resolveStep(p.pendingStep || "biz", { ...p, accel }) }));
-        if (accel) setSheet("accel");
-      }}>{t("verify")}</button>
+      <div className="footer-row">
+        <button className="btn ghost" onClick={() => up({ step: "phone", otp: "" })} aria-label={t("back")}><ArrowLeft size={20} /></button>
+        <button className="btn" disabled={s.otp !== "123456"} onClick={() => {
+          const accel = s.phone === ACCEL_DEMO.phone ? { name: ACCEL_DEMO.name } : null;
+          up((p) => ({ accel, verified: true, pendingStep: null, step: resolveStep(p.pendingStep || "biz", { ...p, accel }) }));
+          if (accel) setSheet("accel");
+        }}>{t("verify")}</button>
+      </div>
     );
   else if (s.step !== "track")
     footer = (
@@ -438,9 +447,9 @@ function BroadGroups({ s, up, t }) {
       </div>
       {chosen && (
         <div className="field">
-          <label htmlFor="bizother">{t("bizOtherNameLabel")}</label>
+          <label htmlFor="bizother">{t("bizOtherNameLabel", t("bizOtherEx")[chosen.seg])}</label>
           <div className="input-row" style={{ alignItems: "center" }}>
-            <input id="bizother" ref={inputRef} className="input" placeholder={t("bizOtherPh")} value={name} autoComplete="off"
+            <input id="bizother" ref={inputRef} className="input" placeholder={t("bizOtherPh")[chosen.seg]} value={name} autoComplete="off"
               onChange={(e) => setName(e.target.value)} />
             <Mic lang={s.lang} t={t} compact onText={(heard) => { setName(heard); return true; }} />
           </div>
