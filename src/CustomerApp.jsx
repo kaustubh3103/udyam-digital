@@ -5,7 +5,7 @@ import { Opt, Chip, Note, Sheet, Mic, speak, matchKeywords } from "./ui.jsx";
 import { BizIcon, NeedIcon, Tile } from "./icons.jsx";
 import Chat from "./Chat.jsx";
 import { GENERIC_TYPES } from "./ai/classify.js";
-import { catalogue, gstReg, udyamReg, reference, inr, tierOfCity, segOfType, fibreAvailable, store, maskGstin } from "./data.js";
+import { catalogue, gstReg, udyamReg, reference, inr, tierOfCity, segOfType, fibreAvailable, pinInCity, noFibrePinFor, store, maskGstin } from "./data.js";
 import { EMP_BANDS, SITE_BANDS, needsFor, makeCtx, recommend, editBundle } from "./engine/advisor.js";
 import { BAND_RANGE, fitBranches, splitBase, priceBranches, priceOrder, isBranchItem, addableProducts, BRANCH_SERVICES } from "./engine/branches.js";
 import { BranchCard, AddServiceSheet, MyBranches, BranchesStep } from "./Branches.jsx";
@@ -534,9 +534,10 @@ function LocScreen({ s, up, t }) {
             onClick={() => up({ fibreOk: fibreAvailable(s.pincode) })}>{t("checkArea")}</button>
         </div>
       </div>
+      {s.city && pinInCity(s.pincode, s.city) === false && <Note kind="warn">{t("pinOutside", s.city)}</Note>}
       {s.fibreOk === true && <Note kind="ok">{t("fibreYes", s.pincode)}</Note>}
       {s.fibreOk === false && <Note kind="info" icon={<Radio size={16} />}>{t("fibreNo", s.pincode)}</Note>}
-      <div className="chips"><Chip demo onClick={() => up({ pincode: "400008", fibreOk: null })}>Demo: area without fibre · 400008</Chip></div>
+      {s.city && <div className="chips"><Chip demo onClick={() => up({ pincode: noFibrePinFor(s.city), fibreOk: null })}>Demo: area without fibre · {noFibrePinFor(s.city)}</Chip></div>}
     </div>
   );
 }

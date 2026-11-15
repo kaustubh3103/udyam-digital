@@ -30,7 +30,7 @@ Every change is priced from the catalogue and re-checked against every rule, per
 
 - Phone `9810000001` = existing Accel mobile customer (ID reused, no upload). OTP is `123456`.
 - Sample GSTINs on the GST screen: active, cancelled, and one with an altered character.
-- Pincode `400008` = area without fibre (switches the plan to 5G AirFiber).
+- Pincodes divisible by 14 = area without fibre (switches the plan to 5G AirFiber). The demo shortcut picks one inside the chosen city, e.g. `141008` for Ludhiana, `400008` for Mumbai. A pincode outside the chosen city shows a gentle warning.
 - On a wide screen, the **Behind the screen** panel explains the rule at work on each step.
 
 ## Where GenAI is used, and how it's kept honest

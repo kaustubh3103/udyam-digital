@@ -17,9 +17,7 @@ export const inr = (n) => "₹" + Math.round(n).toLocaleString("en-IN");
 export const tierOfCity = (city) => reference.cities.find((c) => c.city === city)?.tier ?? 2;
 export const segOfType = (type) => reference.businessTypes.find((b) => b.type === type)?.seg ?? "micro";
 
-// Mock serviceability API: deterministic per pincode, tuned to the ~7% of sites in the
-// data where fibre was not feasible. Try 400008 to see the AirFiber fallback.
-export const fibreAvailable = (pin) => Number(pin) % 14 !== 0;
+export { fibreAvailable, CITY_PIN_PREFIXES, pinInCity, noFibrePinFor } from "./pincodes.js";
 
 // Safe browser storage: never let a blocked or empty store break the app.
 export const store = {

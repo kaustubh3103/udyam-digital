@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { makeCtx, recommend, verifyBundle } from "../src/engine/advisor.js";
 import { splitBase, priceBranches, fitBranches, LINK_IDS } from "../src/engine/branches.js";
 import { keywordClassify } from "../src/ai/classify.js";
+import { pinInCity, noFibrePinFor, fibreAvailable, CITY_PIN_PREFIXES } from "../src/pincodes.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const J = (f) => JSON.parse(fs.readFileSync(path.join(here, "../src/data", f), "utf8"));
@@ -81,6 +82,14 @@ const WORDS = { "medical store": "Pharmacy", "chemist shop": "Pharmacy", "कि
   "मिठाई की दुकान": "Sweet shop", "beauty parlour": "Salon", "cosmetics shop": "Other shop or service", "doctor clinic": "Other office or clinic", "school": "Other office or clinic" };
 let wordOk = 0;
 for (const [w, type] of Object.entries(WORDS)) { const r = keywordClassify(w, ref.businessTypes); r?.type === type ? wordOk++ : bad(w, `matched ${r?.type} instead of ${type}`); }
+// every city has a pincode range, and its demo "no fibre" pincode is inside that range
+for (const c of ref.cities) {
+  const pin = noFibrePinFor(c.city);
+  if (!CITY_PIN_PREFIXES[c.city]) bad(c.city, "no pincode range");
+  else if (!pinInCity(pin, c.city) || fibreAvailable(pin)) bad(c.city, `demo pincode ${pin} should be in the city and have no fibre`);
+}
+if (pinInCity("400008", "Ludhiana") !== false || pinInCity("141008", "Ludhiana") !== true) bad("pincode check", "Ludhiana vs Mumbai pincode");
+console.log(`Pincodes: ${ref.cities.length} cities each have a pincode range and an in-city demo pincode without fibre (Ludhiana ${noFibrePinFor("Ludhiana")})`);
 console.log(`Business words: ${wordOk}/${Object.keys(WORDS).length} matched to the right type`);
 console.log(failed ? `\n${failed} scenario check(s) failed` : `\nAll ${S.length} scenarios passed`);
 process.exit(failed ? 1 : 0);
