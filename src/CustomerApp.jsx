@@ -252,7 +252,6 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
     otp: (
       <div className="screen">
         <div className="screen-head"><h1>{t("otpTitle")}</h1><p className="sub">{t("otpSent", s.phone)}</p></div>
-        <button className="link-btn" id="changenumber" onClick={() => up({ step: "phone", otp: "" })}>{t("changeNumber")}</button>
         <input id="otp" className="input num" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
           value={s.otp} onChange={(e) => up({ otp: e.target.value.replace(/\D/g, "") })} style={{ letterSpacing: ".4em", fontSize: "1.4rem", textAlign: "center" }} />
         <p className="small muted">{t("otpDemo")}</p>
