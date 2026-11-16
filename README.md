@@ -4,6 +4,13 @@
 
 A phone-first onboarding journey for small businesses (YTL Hackathon 2026, Enterprise Track A, *Project Udyam Digital*). A shop owner picks a bundle, gets one transparent monthly price, completes KYC mostly by lookup, books installation, and tracks the order without calling anyone.
 
+## Team JIO
+
+| | Role |
+|---|---|
+| **Kaustubh Aggarwal** ([@kaustubh3103](https://github.com/kaustubh3103)) | Team leader |
+| **Vatsal Raj Agarwal** ([@VatsalRaj05](https://github.com/VatsalRaj05)) | Team member |
+
 All data is synthetic and comes from the hackathon pack. "Accel Telecom" is the case's fictional operator.
 
 ## What's in the prototype
