@@ -1,0 +1,56 @@
+[
+ {
+  "id": "P26",
+  "name": "Premium Care",
+  "category": "Support",
+  "unit": "per account",
+  "priceMin": 999,
+  "priceMax": 999,
+  "setup": 0,
+  "minContract": 12,
+  "installDays": 1,
+  "tiers": [
+   1,
+   2
+  ],
+  "minEmployees": 1,
+  "minSites": 1,
+  "requiresGstin": false,
+  "requiresOneOf": [],
+  "proposed": true,
+  "desc": "Proposed by Team JIO, not in the case catalogue. 24x7 priority support line, dedicated relationship manager, 4-hour fault-fix target, uptime promise with automatic bill credit, 24x7 proactive monitoring, priority installation, Accel equipment replaced by the next working day, Wi-Fi 6 router.",
+  "segments": [
+   "micro",
+   "prof",
+   "multi",
+   "mfg"
+  ]
+ },
+ {
+  "id": "P27",
+  "name": "Business Protection Cover",
+  "category": "Insurance",
+  "unit": "per account",
+  "priceMin": 299,
+  "priceMax": 299,
+  "setup": 0,
+  "minContract": 12,
+  "installDays": 1,
+  "tiers": [
+   1,
+   2
+  ],
+  "minEmployees": 1,
+  "minSites": 1,
+  "requiresGstin": false,
+  "requiresOneOf": [],
+  "proposed": true,
+  "desc": "Proposed by Team JIO, not in the case catalogue. Cyber-fraud and equipment cover up to Rs 5 lakh, offered with a licensed partner insurer. Price is an assumption, scaled from a market reference of about Rs 50,000 a year for Rs 1 crore of SME cyber cover.",
+  "segments": [
+   "micro",
+   "prof",
+   "multi",
+   "mfg"
+  ]
+ }
+]

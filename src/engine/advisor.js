@@ -69,21 +69,18 @@ export function checkEligibility(product, ctx, bundleIds) {
 }
 
 // ---------------------------------------------------------------- building blocks
-function primaryLink(ctx, level, byId) {
+/** The internet line. "standard" for Basic and Recommended; "premium" = the fastest line the business qualifies for. */
+function primaryLink(ctx, grade, byId) {
   const ok = (id) => checkEligibility(byId[id], ctx, null).ok;
-  const fibreFirst = (ids) => ids.find((id) => ok(id));
-  if (ctx.seg === "mfg") {
-    if (level === "complete" && ok("P06")) return "P06";
-    if (ok("P05")) return "P05";
-    return ctx.fibreOk ? fibreFirst(["P03", "P02", "P01"]) : "P04";
+  const first = (ids) => ids.find((id) => ok(id));
+  if (grade === "premium") {
+    if (ctx.seg === "mfg") return first(["P06", "P05"]) || (ctx.fibreOk ? first(["P03", "P02", "P01"]) : "P04");
+    if (!ctx.fibreOk) return (ctx.seg === "multi" && ok("P05")) ? "P05" : "P04";
+    return first(["P03", "P02"]);
   }
-  if (!ctx.fibreOk) {
-    if (ctx.seg === "multi" && ok("P05") && level !== "basic") return "P05";
-    return "P04"; // 5G AirFiber: no cable needed, installs in about 2 days
-  }
-  if (ctx.seg === "micro") return level === "complete" ? "P02" : "P01";
-  if (ctx.seg === "prof") return level === "complete" ? fibreFirst(["P03", "P02"]) : level === "basic" ? "P01" : "P02";
-  /* multi */ return level === "complete" ? fibreFirst(["P03", "P02"]) : "P02";
+  if (ctx.seg === "mfg") return ok("P05") ? "P05" : ctx.fibreOk ? first(["P03", "P02", "P01"]) : "P04";
+  if (!ctx.fibreOk) return (ctx.seg === "multi" && ok("P05")) ? "P05" : "P04"; // 5G AirFiber: no cable, about 2 days
+  return ctx.seg === "micro" ? "P01" : "P02";
 }
 
 function needItems(need, ctx) {
@@ -105,80 +102,99 @@ function needItems(need, ctx) {
     case "branches": return [{ id: "P10", qty: s }];
     case "machines": return [{ id: "P24", qty: 5 }];
     case "vehicles": return [{ id: "P25", qty: 3 }];
+    case "staticip": return [{ id: "P11", qty: 1 }];
+    case "firewall": return [{ id: "P21", qty: s }];
+    case "support": return [{ id: "P26", qty: 1 }];
+    case "insurance": return [{ id: "P27", qty: 1 }];
     default: return [];
   }
 }
 
-// Things a "Complete" plan adds even if the owner did not ask, chosen from what
-// similar businesses actually bought (see scripts/prepare_data.py, activated bundles).
-const COMPLETE_EXTRAS = {
-  micro: ["guestwifi", "cctv", "uptime"],
-  prof: ["uptime", "backup", "security"],
-  multi: ["uptime", "cctv", "branches"],
-  mfg: ["security", "cctv", "staticip"],
-};
+// ---------------------------------------------------------------- the three plans
+// Basic       = everything the owner asked for, standard grade, sized for their staff and branches.
+// Recommended = Basic + add-ons that at least 1 in 4 similar businesses bought (case data, attach_rates.json)
+//               + "Accel suggests": basics the business hasn't covered (device protection, backup line, email, file backup, cover).
+// Premium     = Recommended at the top grade the business qualifies for, plus Premium Care and Business Protection Cover.
+export const POPULAR_SHARE = 0.25;
+/** Which goal each add-on serves, so take-up rates can be read as goals. */
+export const PRODUCT_NEED = { P19: "payments", P22: "guestwifi", P23: "cctv", P15: "whatsapp", P18: "website", P20: "security",
+  P17: "backup", P12: "calls", P13: "calls", P14: "sms", P09: "uptime", P10: "branches", P16: "email", P11: "staticip",
+  P21: "firewall", P24: "machines", P25: "vehicles", P26: "support", P27: "insurance" };
+const PER_SITE = new Set(["P01", "P02", "P03", "P04", "P05", "P06", "P09", "P10", "P19", "P21", "P22", "P23"]);
 
-const COMPLETE_NEXT = {
-  micro: ["whatsapp", "billing", "website"],
-  prof: ["email", "security", "website", "calls"],
-  multi: ["guestwifi", "security", "calls"],
-  mfg: ["email", "backup", "uptime"],
-};
-
-// ---------------------------------------------------------------- main
 /**
  * ctx = { seg, cityTier, employees, sites, gstinActive, fibreOk, needs: [ids] }
- * Returns { tiers: {basic, recommended, complete}, locked: [...] }
+ * attach = attach_rates.json (optional): share of similar businesses that bought each add-on.
+ * Returns { tiers: {basic, recommended, premium}, locked: [...] }
  */
-export function recommend(ctx, catalogue) {
+export function recommend(ctx, catalogue, attach = null) {
   const byId = Object.fromEntries(catalogue.map((p) => [p.id, p]));
   const locked = new Map();
-
-  const build = (level, more = []) => {
-    const items = new Map();
-    const add = (id, qty, why) => {
-      const prev = items.get(id);
-      if (prev) { prev.qty = Math.max(prev.qty, qty); return; }
-      items.set(id, { id, qty, why });
-    };
-    const link = primaryLink(ctx, level, byId);
-    add(link, ctx.sites, { key: ctx.fibreOk ? "link" : "linkNoFibre" });
-    const lineProduct = level === "basic" || ctx.seg === "micro" ? "P07" : "P08";
-    const lines = level === "basic" ? Math.min(2, ctx.lines) : ctx.lines;
-    add(lineProduct, lines, { key: "lines" });
-
-    let wanted = [...ctx.needs];
-    if (level === "basic") wanted = wanted.slice(0, 1);
-    if (level === "complete") wanted = [...new Set([...wanted, ...COMPLETE_EXTRAS[ctx.seg], ...more])];
-
-    for (const need of wanted) {
-      if (need === "staticip") {
-        if (["P01", "P02", "P03"].includes(link)) add("P11", 1, { key: "extra", need });
-        continue;
-      }
-      for (const cand of needItems(need, ctx)) {
-        const chosen = [cand, cand.alt].filter(Boolean).find((c) => {
-          const ids = new Set([...items.keys(), c.id]);
-          return checkEligibility(byId[c.id], ctx, ids).ok;
-        });
-        const asked = ctx.needs.includes(need);
-        if (chosen) add(chosen.id, chosen.qty, { key: asked ? "need" : "extra", need });
-        else if (asked) {
-          const ids = new Set([...items.keys(), cand.id]);
-          locked.set(cand.id, { id: cand.id, need, reasons: checkEligibility(byId[cand.id], ctx, ids).reasons });
-        }
-      }
-    }
-    return priceBundle([...items.values()], catalogue);
+  const items = new Map();
+  const has = (id) => items.has(id);
+  const ids = (extra) => new Set([...items.keys(), ...(extra ? [extra] : [])]);
+  const allowed = (id) => !!byId[id] && checkEligibility(byId[id], ctx, ids(id)).ok;
+  const add = (id, qty, why) => {
+    const prev = items.get(id);
+    if (prev) { prev.qty = Math.max(prev.qty, qty); return; }
+    items.set(id, { id, qty, why });
+  };
+  // internet line first, then SIMs, then everything else in the order it was added
+  const rank = (id) => (/^P0[1-6]$/.test(id) ? 0 : /^P0[78]$/.test(id) ? 1 : 2);
+  const snapshot = () => priceBundle([...items.values()].map((i) => ({ ...i })).sort((a, b) => rank(a.id) - rank(b.id)), catalogue);
+  const qtyFor = (pid, need) => {
+    const c = needItems(need, ctx).flatMap((x) => [x, x.alt]).find((x) => x && x.id === pid);
+    return c ? c.qty : PER_SITE.has(pid) ? ctx.sites : 1;
   };
 
-  const recommended = build("recommended");
-  let complete = build("complete");
-  // if the usual extras add nothing (already asked for, or not allowed), offer the next most useful ones
-  for (let k = 1; complete.monthly === recommended.monthly && k <= COMPLETE_NEXT[ctx.seg].length; k++) complete = build("complete", COMPLETE_NEXT[ctx.seg].slice(0, k + 1));
+  // ---- Basic: what the owner asked for
+  const link = primaryLink(ctx, "standard", byId);
+  add(link, ctx.sites, { key: ctx.fibreOk ? "link" : "linkNoFibre" });
+  add(ctx.seg === "micro" ? "P07" : "P08", ctx.lines, { key: "lines" });
+  for (const need of ctx.needs) {
+    for (const cand of needItems(need, ctx)) {
+      const chosen = [cand, cand.alt].filter(Boolean).find((c) => allowed(c.id));
+      if (chosen) add(chosen.id, chosen.qty, { key: "need", need });
+      else locked.set(cand.id, { id: cand.id, need, reasons: checkEligibility(byId[cand.id], ctx, ids(cand.id)).reasons });
+    }
+  }
+  const basic = snapshot();
+
+  // ---- Recommended: what similar businesses add, then what Accel suggests
+  const rates = attach?.rates?.[ctx.seg] ?? {};
+  for (const [pid, share] of Object.entries(rates).sort((a, b) => b[1] - a[1])) {
+    const need = PRODUCT_NEED[pid];
+    if (share < POPULAR_SHARE || !need || has(pid) || ctx.needs.includes(need) || !allowed(pid)) continue;
+    add(pid, qtyFor(pid, need), { key: "popular", need, share });
+  }
+  const digitalPay = has("P19") || has("P15") || ctx.needs.some((n) => ["payments", "billing", "whatsapp"].includes(n));
+  const suggest = [
+    ["P20", ctx.employees >= 2 || has("P19"), "security"],
+    ["P09", has("P19") || has("P23") || ctx.needs.includes("uptime"), "uptime"],
+    ["P16", ["prof", "multi", "mfg"].includes(ctx.seg), "email"],
+    ["P17", ["prof", "mfg"].includes(ctx.seg), "backup"],
+    ["P27", digitalPay, "insurance"],
+  ];
+  for (const [pid, when, need] of suggest) {
+    if (when && !has(pid) && allowed(pid)) add(pid, qtyFor(pid, need), { key: "suggest", need });
+  }
+  const recommended = snapshot();
+
+  // ---- Premium: the top grade they qualify for, plus Premium Care and cover
+  const top = primaryLink(ctx, "premium", byId);
+  if (top && top !== link) {
+    const old = items.get(link);
+    items.delete(link);
+    items.set(top, { id: top, qty: old.qty, why: { key: "premium", kind: "speed" } });
+  }
+  if (has("P07")) { const q = items.get("P07").qty; items.delete("P07"); add("P08", q, { key: "premium", kind: "sims" }); }
+  const premiumAdds = [["P09", ctx.sites, "uptime"], ["P11", 1, "staticip"], ["P21", ctx.sites, "firewall"], ["P26", 1, "care"], ["P27", 1, "insurance"]];
+  for (const [pid, qty, kind] of premiumAdds) if (!has(pid) && allowed(pid)) add(pid, qty, { key: "premium", kind });
+  const premium = snapshot();
+
   return {
-    tiers: { basic: build("basic"), recommended, complete },
-    locked: [...locked.values()],
+    tiers: { basic, recommended, premium },
+    locked: [...locked.values()].filter((l) => !basic.items.some((i) => i.id === l.id)),
   };
 }
 

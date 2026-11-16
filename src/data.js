@@ -1,4 +1,6 @@
-import catalogue from "./data/catalogue.json";
+import caseCatalogue from "./data/catalogue.json";
+import proposedProducts from "./data/proposed_products.json";
+import attachRates from "./data/attach_rates.json";
 import gstReg from "./data/gstin_registry.json";
 import udyamReg from "./data/udyam_registry.json";
 import reference from "./data/reference.json";
@@ -11,7 +13,10 @@ import { withGenerics } from "./ai/classify.js";
 // The 35 specific types from the data, plus four broad "Other …" groups so every business fits somewhere.
 reference.businessTypes = withGenerics(reference.businessTypes);
 
-export { catalogue, gstReg, udyamReg, reference, dashboard, leadModel, stalledLeads, specimens };
+// The 25 products from the case, plus two proposed by us (Premium Care, Business Protection Cover), marked proposed: true.
+const catalogue = [...caseCatalogue, ...proposedProducts];
+
+export { catalogue, attachRates, gstReg, udyamReg, reference, dashboard, leadModel, stalledLeads, specimens };
 
 export const inr = (n) => "₹" + Math.round(n).toLocaleString("en-IN");
 export const tierOfCity = (city) => reference.cities.find((c) => c.city === city)?.tier ?? 2;

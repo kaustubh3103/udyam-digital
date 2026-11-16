@@ -5,7 +5,7 @@ import { Opt, Chip, Note, Sheet, Mic, speak, matchKeywords } from "./ui.jsx";
 import { BizIcon, NeedIcon, Tile } from "./icons.jsx";
 import Chat from "./Chat.jsx";
 import { GENERIC_TYPES } from "./ai/classify.js";
-import { catalogue, gstReg, udyamReg, reference, inr, tierOfCity, segOfType, fibreAvailable, pinInCity, noFibrePinFor, store, maskGstin } from "./data.js";
+import { catalogue, attachRates, gstReg, udyamReg, reference, inr, tierOfCity, segOfType, fibreAvailable, pinInCity, noFibrePinFor, store, maskGstin } from "./data.js";
 import { EMP_BANDS, SITE_BANDS, needsFor, makeCtx, recommend, editBundle } from "./engine/advisor.js";
 import { BAND_RANGE, fitBranches, splitBase, priceBranches, priceOrder, isBranchItem, addableProducts, BRANCH_SERVICES } from "./engine/branches.js";
 import { BranchCard, AddServiceSheet, MyBranches, BranchesStep } from "./Branches.jsx";
@@ -17,6 +17,7 @@ export const flowFor = (s) => FLOW.filter((st) => st !== "branches" || (BAND_RAN
 const SAVE_KEY = "udyam-digital:session";
 const QTY_EDITABLE = new Set(["P07", "P08", "P12", "P16", "P19", "P20", "P23", "P24", "P25"]);
 const lockReasonT = (t) => (r) => !r ? "" : r.code === "employees" || r.code === "sites" ? t("lockReason." + r.code, r.min) : t("lockReason." + r.code);
+const byIdCat = Object.fromEntries(catalogue.map((p) => [p.id, p]));
 const NO_EDITS = () => ({ removed: [], qty: {}, added: [] });
 const SPEND_MID = { s1: 700, s2: 2000, s3: 6500, s4: 15000 };
 const SAMPLE_GSTINS = [
@@ -33,7 +34,7 @@ const initial = (partner) => ({
   bizType: null, bizOther: null, gstInput: "", gst: null, noGst: false,
   empBand: null, siteBand: null, city: null, pincode: "", fibreOk: null,
   internet: null, spend: null, needs: [], showMoreNeeds: false,
-  tier: "recommended", edits: { removed: [], qty: {}, added: [] }, branches: null,
+  tier: "basic", edits: { removed: [], qty: {}, added: [] }, branches: null,
   consent: { req: false, wa: true, offers: false, at: null },
   kyc: { udyamInput: "", udyam: null, udyamTried: false, digi: false, addrDiff: false, bill: null, regDoc: null, signed: false },
   slot: { date: null, win: null }, upi: "",
@@ -51,16 +52,18 @@ export function derive(s) {
   const ctx = seg && s.empBand && s.siteBand
     ? makeCtx({ seg, empBand: s.empBand, siteBand: s.siteBand, cityTier, gstinActive: s.gst?.status === "Active", fibreOk: s.fibreOk !== false, needs: s.needs, sites: count })
     : null;
-  const rec = ctx ? recommend(ctx, catalogue) : null;
+  const rec = ctx ? recommend(ctx, catalogue, attachRates) : null;
+  // saved sessions from before the rename may still say "complete"
+  const tier = rec && !rec.tiers[s.tier] ? (s.tier === "complete" ? "premium" : "basic") : s.tier;
   // the tier with the owner's own edits, then split branch by branch and priced again
-  const edited = rec ? editBundle(rec.tiers[s.tier], s.edits, ctx, catalogue) : null;
+  const edited = rec ? editBundle(rec.tiers[tier], s.edits, ctx, catalogue) : null;
   const split = edited ? splitBase(edited, ctx.sites) : null;
   const branches = ctx ? fitBranches(s.branches, ctx.sites) : [];
   const bundle = split ? priceBranches(split, branches, catalogue, ctx) : null;
   const businessName = s.gst?.tradeName || s.bizOther?.labelLocal || s.bizOther?.text || (s.bizType ? bizLabel(s.lang, s.bizType) : "");
   const MISSING_LABEL = { biz: "business type", gst: "GSTIN or 'no GST'", size: "staff and branches", loc: "city and pincode" };
   const missing = ["biz", "gst", "size", "loc"].filter((st) => !doneFor(st, s, bundle)).map((st) => MISSING_LABEL[st]);
-  return { seg, sitesMin, ctx, rec, bundle, split, branches, businessName, missing };
+  return { seg, sitesMin, ctx, rec, tier, bundle, split, branches, businessName, missing };
 }
 
 export function doneFor(step, s, bundle) {
@@ -143,7 +146,7 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
   useEffect(() => { window.scrollTo?.(0, 0); }, [s.step]);
 
   // ------------------------------------------------------------ derived
-  const { seg, sitesMin, ctx, rec, bundle, split, branches, businessName } = derive(s);
+  const { seg, sitesMin, ctx, rec, tier, bundle, split, branches, businessName } = derive(s);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMsgs, setChatMsgs] = useState([]);
   const navigate = (target) => {
@@ -294,7 +297,7 @@ export default function CustomerApp({ partner, onCallback, onLeadEvent, onStep }
 
     needs: <NeedsScreen s={s} up={up} t={t} seg={seg} sitesMin={sitesMin} />,
     branches: bundle && <BranchesStep s={s} up={up} t={t} ctx={ctx} split={split} branches={branches} bundle={bundle} lockReason={lockReasonT(t)} />,
-    plan: bundle && <PlanScreen s={s} up={up} t={t} rec={rec} bundle={bundle} ctx={ctx} split={split} branches={branches} businessName={businessName} />,
+    plan: bundle && <PlanScreen s={s} up={up} t={t} rec={rec} tier={tier} bundle={bundle} ctx={ctx} split={split} branches={branches} businessName={businessName} />,
     consent: <ConsentScreen s={s} up={up} t={t} />,
     kyc: <KycScreen s={s} up={up} t={t} setSheet={setSheet} />,
     slot: bundle && <SlotScreen s={s} up={up} t={t} bundle={bundle} />,
@@ -567,10 +570,10 @@ function NeedsScreen({ s, up, t, seg, sitesMin }) {
 }
 
 // ---------------------------------------------------------------- plan
-function PlanScreen({ s, up, t, rec, bundle, ctx, branches, businessName }) {
+function PlanScreen({ s, up, t, rec, tier, bundle, ctx, branches, businessName }) {
   const [faq, setFaq] = useState(null);
   const [adding, setAdding] = useState(false);
-  const base = rec.tiers[s.tier];
+  const base = rec.tiers[tier];
   const edits = s.edits;
   const custom = !!edits.custom;
   const removed = new Set(edits.removed);
@@ -597,10 +600,20 @@ function PlanScreen({ s, up, t, rec, bundle, ctx, branches, businessName }) {
     setAdding(false);
   };
 
-  const whyText = (w) => w.key === "need" ? t("why.need", t("needs." + w.need)) : t("why." + w.key);
+  const whyText = (w = {}) =>
+    w.key === "need" ? t("why.need", t("needs." + w.need))
+    : w.key === "popular" ? t("why.popular", Math.round(w.share * 100), t("segPlural." + ctx.seg))
+    : w.key === "suggest" ? t("whySuggest." + w.need)
+    : w.key === "premium" ? t("whyPremium." + w.kind)
+    : t("why." + w.key);
+  const TAG = { popular: ["info", "tagPopular"], suggest: ["warn", "tagSuggest"], premium: ["gold", "tagPremium"] };
+  // goals the owner ticked that this plan doesn't cover (they removed the item); locked ones are listed separately
+  const PRODUCTS_FOR = { payments: ["P19"], billing: ["P19"], whatsapp: ["P15"], sms: ["P14"], cctv: ["P23"], guestwifi: ["P22"], email: ["P16"], website: ["P18"], backup: ["P17"], security: ["P20"], uptime: ["P09"], calls: ["P12", "P13"], branches: ["P10"], machines: ["P24"], vehicles: ["P25"] };
+  const lockedIds = new Set(rec.locked.map((l) => l.id));
+  const missingNeeds = s.needs.filter((n) => (PRODUCTS_FOR[n] || []).length && !PRODUCTS_FOR[n].some((id) => bundle.items.some((i) => i.id === id) || lockedIds.has(id)));
   const hasBackup = bundle.items.some((i) => i.id === "P09");
   const lockReason = (r) => r.code === "employees" || r.code === "sites" ? t("lockReason." + r.code, r.min) : t("lockReason." + r.code);
-  const summary = `${custom ? t("buildOwn") : t("tiers")[s.tier]}. ${inr(bundle.monthly)} ${t("perMonth")}. ` + bundle.items.map((i) => productName(s.lang, i.id) + (i.qty > 1 ? ` × ${i.qty}` : "")).join(", ");
+  const summary = `${custom ? t("buildOwn") : t("tiers")[tier]}. ${inr(bundle.monthly)} ${t("perMonth")}. ` + bundle.items.map((i) => productName(s.lang, i.id) + (i.qty > 1 ? ` × ${i.qty}` : "")).join(", ");
   const spendMid = SPEND_MID[s.spend];
   const addable = adding ? addableProducts(bundle, ctx, catalogue).filter((x) => !base.items.some((i) => i.id === x.product.id && !removed.has(x.product.id)) && !(multi && BRANCH_SERVICES.includes(x.product.id))) : [];
 
@@ -611,8 +624,8 @@ function PlanScreen({ s, up, t, rec, bundle, ctx, branches, businessName }) {
         {businessName && <p className="sub">{t("planFor", businessName)}</p>}
       </div>
       <div className="tier-switch" role="group">
-        {["basic", "recommended", "complete"].map((k) => (
-          <button key={k} aria-pressed={s.tier === k && !custom} onClick={() => setTier(k)}>
+        {["basic", "recommended", "premium"].map((k) => (
+          <button key={k} aria-pressed={tier === k && !custom} onClick={() => setTier(k)}>
             {k === "recommended" && <Star size={12} className="best" aria-hidden="true" />}
             {t("tiers")[k]}<span className="num">{inr(rec.tiers[k].monthly)}</span>
           </button>
@@ -622,7 +635,13 @@ function PlanScreen({ s, up, t, rec, bundle, ctx, branches, businessName }) {
         <Tile as={Wrench} size={18} />
         <span style={{ display: "flex", flexDirection: "column" }}><strong>{t("buildOwn")}</strong><span className="small sub">{t("buildOwnSub")}</span></span>
       </button>
-      {custom && <Note kind="info">{t("buildOwnOn")}</Note>}
+      {custom ? <Note kind="info">{t("buildOwnOn")}</Note> : <p className="small sub tier-explain">{t("tierExplain." + tier)}</p>}
+      {missingNeeds.length > 0 && (
+        <Note kind="warn">
+          <span>{t("missingGoals", missingNeeds.map((n) => t("needs." + n)).join(", "))}</span>{" "}
+          <button className="link-btn" style={{ padding: 0 }} onClick={() => up((p) => ({ edits: { ...p.edits, removed: p.edits.removed.filter((id) => !missingNeeds.some((n) => PRODUCTS_FOR[n].includes(id))) } }))}>{t("missingAdd")}</button>
+        </Note>
+      )}
       <div className="price-block card-dark">
         <div className="price">{inr(bundle.monthly)}<small> {t("perMonth")}</small></div>
         <div className="facts">
@@ -648,7 +667,11 @@ function PlanScreen({ s, up, t, rec, bundle, ctx, branches, businessName }) {
               <div key={it.id} className={"item" + (off ? " off" : "")} data-item={it.id}>
                 <span className="nm">{productName(s.lang, it.id)}{qty > 1 && !qtyEditable ? ` × ${qty}` : ""}</span>
                 <span className="amt">{off ? "—" : inr(cur?.monthly ?? 0)}</span>
-                <span className="why">{perBranch && !off ? t("setPerBranch", ctx.sites) : whyText(it.why)}</span>
+                <span className="why">
+                  {TAG[it.why?.key] && !off && <span className={"tag " + TAG[it.why.key][0]}>{t(TAG[it.why.key][1])}</span>}
+                  {perBranch && !off ? t("setPerBranch", ctx.sites) : whyText(it.why)}
+                  {byIdCat[it.id]?.proposed && <em className="proposed"> · {t("proposedPrice")}</em>}
+                </span>
                 {(qtyEditable || it.id !== linkId) && (
                   <div className="ctl">
                     {qtyEditable && !off && (

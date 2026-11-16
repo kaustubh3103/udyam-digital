@@ -35,7 +35,7 @@ export default function Chat({ s, t, derive, apply, commit, navigate, onCallback
   // A fresh note is added only if the owner has moved on since the last one.
   useEffect(() => {
     const d = derive(s);
-    const key = [s.step, s.bizType, s.empBand, s.siteBand, s.city, s.gst?.gstin || s.noGst, s.needs.join(","), s.tier, d.bundle?.monthly].join("|");
+    const key = [s.step, s.bizType, s.empBand, s.siteBand, s.city, s.gst?.gstin || s.noGst, s.needs.join(","), d.tier, d.bundle?.monthly].join("|");
     setMsgs((m) => {
       const lastIntro = [...m].reverse().find((x) => x.intro);
       if (lastIntro?.key === key) return m;
@@ -211,15 +211,19 @@ function knownFacts(s, d, t) {
     const names = s.needs.slice(0, 2).map((n) => t("chatNeedShort." + n));
     f.push(names.join(", ") + (s.needs.length > 2 ? ` +${s.needs.length - 2}` : ""));
   }
-  if (d.bundle) f.push(`${t("tiers")[s.tier]} · ${inr(d.bundle.monthly)}${t("perMonth")}`);
+  if (d.bundle) f.push(`${t("tiers")[d.tier]} · ${inr(d.bundle.monthly)}${t("perMonth")}`);
   return f;
 }
 
 function describePlan(st, d) {
   const names = PRODUCT_NAMES.en;
-  const tierName = { basic: "Basic", recommended: "Recommended", complete: "Complete" }[st.tier];
+  const tierName = { basic: "Basic", recommended: "Recommended", premium: "Premium" }[d.tier];
+  // each item with why it is there, so Saathi can explain the difference between the plans
+  const why = (w = {}) => w.key === "popular" ? ` [${Math.round(w.share * 100)}% of similar businesses buy this]`
+    : w.key === "suggest" ? " [Accel suggests: a basic they hadn't covered]" : w.key === "premium" ? " [Premium upgrade]" : w.key === "need" ? " [they asked for this]" : "";
+  const proposed = (id) => (catalogue.find((p) => p.id === id)?.proposed ? " (proposed by Team JIO, not in Accel's catalogue; price is our proposal)" : "");
   const others = Object.entries(d.rec.tiers).map(([k, v]) =>
-    `${k}: ₹${v.monthly}/month, setup ₹${v.setup} (${v.items.map((i) => `${names[i.id]} × ${i.qty}`).join("; ")})`).join(" | ");
+    `${k}: ₹${v.monthly}/month, setup ₹${v.setup} (${v.items.map((i) => `${names[i.id]} × ${i.qty}${why(i.why)}${proposed(i.id)}`).join("; ")})`).join(" | ");
   return {
     tierName, monthly: d.bundle.monthly, setup: d.bundle.setup, contractMonths: d.bundle.contractMonths, installDays: d.bundle.installDays,
     items: d.bundle.items, others, locked: d.rec.locked.map((l) => names[l.id]).join(", "),

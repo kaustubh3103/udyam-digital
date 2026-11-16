@@ -10,11 +10,18 @@ All data is synthetic and comes from the hackathon pack. "Accel Telecom" is the 
 
 | View | What it does |
 | --- | --- |
-| **Owner app** (`#app`) | Language → phone OTP → business type → GSTIN lookup → size → pincode serviceability → today's setup → needs → plan (Basic / Recommended / Complete, or **build your own**) → consent → smart KYC → install slot + UPI AutoPay → order tracker with WhatsApp updates and **My branches** |
+| **Owner app** (`#app`) | Language → phone OTP → business type → GSTIN lookup → size → pincode serviceability → today's setup → needs → plan (Basic / Recommended / Premium, or **build your own**) → consent → smart KYC → install slot + UPI AutoPay → order tracker with WhatsApp updates and **My branches** |
 | **KYC check** (`#kyc`) | The 12 specimen applicants (K01–K12), OCR-read and validated against the mock GST and Udyam registries, with plain-language results |
 | **Sales & partner desk** (`#desk`) | Callback queue ranked by a lead score, assisted sign-up for partners and field sales, drop-off analysis, rule-breach comparison, segment economics |
 
 Hindi and English are complete; Marathi covers the first screens and falls back to Hindi. Seven more languages from the leads data are listed as coming soon.
+
+### The three plans
+
+- **Basic:** everything the owner asked for, at standard grade, sized for their staff and branches. Nothing they ticked is left out; if they remove something they asked for, a note says so with an "Add it back" button.
+- **Recommended:** Basic, plus (1) "Businesses like yours": every add-on that at least 1 in 4 similar businesses bought in the case data, with the % shown (`src/data/attach_rates.json`, made by `scripts/attach_rates.py`), and (2) "Accel suggests": basics the business hasn't covered (antivirus, backup internet, business email, file backup, Business Protection Cover).
+- **Premium:** Recommended at the top grade the business qualifies for (fastest internet line, 150 GB SIM plan, backup line, static IP, managed firewall where eligible) plus **Premium Care** (24×7 priority support line, relationship manager, 4-hour fault-fix target, uptime promise with bill credit, equipment replaced next working day) and **Business Protection Cover** (cyber-fraud and equipment cover with a partner insurer).
+- Premium Care (₹999/month) and Business Protection Cover (₹299/month) are **proposed by Team JIO and not in the case catalogue** (`src/data/proposed_products.json`, `proposed: true`). The app labels their prices as proposals; every other price comes from the case catalogue.
 
 ### Customise the plan, branch by branch
 

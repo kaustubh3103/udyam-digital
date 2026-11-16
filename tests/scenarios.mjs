@@ -12,7 +12,8 @@ import { pinInCity, noFibrePinFor, fibreAvailable, CITY_PIN_PREFIXES } from "../
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const J = (f) => JSON.parse(fs.readFileSync(path.join(here, "../src/data", f), "utf8"));
-const catalogue = J("catalogue.json");
+const catalogue = [...J("catalogue.json"), ...J("proposed_products.json")];
+const attach = J("attach_rates.json");
 const ref = J("reference.json");
 const byId = Object.fromEntries(catalogue.map((p) => [p.id, p]));
 const tierOf = (c) => ref.cities.find((x) => x.city === c).tier;
@@ -48,8 +49,14 @@ for (const sc of S) {
   const sitesN = sc.exact ?? { "1": 1, "2-3": 2, "4-10": 4, "10+": 10 }[sc.sites];
   const ctx = makeCtx({ seg: segOf(sc.type) === "micro" && sitesN >= 2 ? "multi" : segOf(sc.type), empBand: sc.emp, siteBand: sc.sites, cityTier: tierOf(sc.city),
     gstinActive: sc.gst, fibreOk: sc.fibre !== false, needs: sc.needs, sites: sitesN });
-  const rec = recommend(ctx, catalogue);
-  const { basic, recommended: r, complete } = rec.tiers;
+  const rec = recommend(ctx, catalogue, attach);
+  const { basic, recommended: r, premium: complete } = rec.tiers;
+  // Basic holds every goal they asked for; Recommended only adds data-backed or Accel-suggested items; Premium adds top grade + care + cover
+  const inB = new Set(basic.items.map((i) => i.id)), inR = new Set(r.items.map((i) => i.id));
+  for (const it of r.items) if (!inB.has(it.id) && !(it.why.key === "popular" && it.why.share >= 0.25) && it.why.key !== "suggest") bad(sc.who, `Recommended adds ${it.id} without a data or Accel reason`);
+  for (const it of basic.items) if (!inR.has(it.id)) bad(sc.who, `Recommended drops ${it.id} from Basic`);
+  for (const it of complete.items) if (!inR.has(it.id) && it.why.key !== "premium") bad(sc.who, `Premium adds ${it.id} without a premium reason`);
+  if (!complete.items.some((i) => i.id === "P26")) bad(sc.who, "Premium should include Premium Care");
   for (const [k, b] of Object.entries(rec.tiers)) {
     const v = verifyBundle(b, ctx);
     if (v.length) bad(sc.who, `${k} breaks rules: ${JSON.stringify(v)}`);
@@ -57,12 +64,12 @@ for (const sc of S) {
     if (links.length !== 1 || links[0].qty !== ctx.sites) bad(sc.who, `${k} should have one internet line per branch`);
     if (b.items.some((i) => !i.product.tiers.includes(ctx.cityTier))) bad(sc.who, `${k} has a product not sold in this city`);
   }
-  if (!(basic.monthly <= r.monthly && r.monthly <= complete.monthly)) bad(sc.who, `prices not Basic ≤ Recommended ≤ Complete (${basic.monthly}, ${r.monthly}, ${complete.monthly})`);
+  if (!(basic.monthly <= r.monthly && r.monthly <= complete.monthly)) bad(sc.who, `prices not Basic ≤ Recommended ≤ Premium (${basic.monthly}, ${r.monthly}, ${complete.monthly})`);
   const have = new Set(r.items.map((i) => i.id));
   const lockedIds = new Set(rec.locked.map((l) => l.id));
   for (const n of sc.needs) {
     const ps = NEED_PRODUCTS[n];
-    if (!ps.some((p) => have.has(p) || lockedIds.has(p))) bad(sc.who, `asked for ${n} but it's neither in the plan nor shown as locked`);
+    if (!ps.some((p) => inB.has(p) || lockedIds.has(p))) bad(sc.who, `asked for ${n} but Basic neither has it nor shows it as locked`);
   }
   for (const id of sc.expectIn ?? []) if (!have.has(id)) bad(sc.who, `expected ${byId[id].name} in the plan`);
   for (const id of sc.expectNot ?? []) if ([basic, r, complete].some((b) => b.items.some((i) => i.id === id))) bad(sc.who, `${byId[id].name} should not be offered`);
@@ -73,7 +80,7 @@ for (const sc of S) {
     const p = priceBranches(splitBase(r, ctx.sites), fitBranches(null, ctx.sites), catalogue, ctx);
     if (p.monthly !== r.monthly || p.violations.length) bad(sc.who, `branch split changes the price or breaks a rule (${p.monthly} vs ${r.monthly})`);
   }
-  console.log(`• ${sc.who}\n    Recommended ₹${r.monthly}/month (Basic ₹${basic.monthly}, Complete ₹${complete.monthly}), setup ₹${r.setup}, ${r.contractMonths} months: ${names(r)}` +
+  console.log(`• ${sc.who}\n    Basic ₹${basic.monthly} · Recommended ₹${r.monthly} · Premium ₹${complete.monthly}/month, setup ₹${r.setup}, ${r.contractMonths} months: ${names(r)}` +
     (rec.locked.length ? `\n    Locked: ${rec.locked.map((l) => `${byId[l.id].name} (${l.reasons.map((x) => x.code).join("/")})`).join(", ")}` : ""));
 }
 // everyday words owners type or say for their business (used for voice and when the AI isn't available)

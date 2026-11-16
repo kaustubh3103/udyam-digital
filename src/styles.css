@@ -443,3 +443,9 @@ td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
 .ok-text { color: var(--ok); font-weight: 600; } .warn-text { color: var(--warn); font-weight: 600; }
 .same-as { align-self: flex-start; }
 .pin-input { max-width: 180px; letter-spacing: .12em; }
+.tag { display: inline-block; font-size: .7rem; font-weight: 700; border-radius: 999px; padding: 1px 8px; margin-right: 6px; vertical-align: 1px; }
+.tag.info { background: var(--info-soft, #e8efff); color: var(--info, #2f54c8); }
+.tag.warn { background: var(--warn-soft, #fff3df); color: var(--warn, #a15c07); }
+.tag.gold { background: var(--gold-soft, #fbf1dc); color: var(--gold, #9a6a12); }
+.proposed { font-style: italic; color: var(--ink-3, #8a8090); }
+.tier-explain { margin-top: -4px; }

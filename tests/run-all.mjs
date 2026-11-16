@@ -12,7 +12,8 @@ import { validateClassification, keywordClassify, buildClassifyPrompt } from "..
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const J = (f) => JSON.parse(fs.readFileSync(path.join(here, "../src/data", f), "utf8"));
-const catalogue = J("catalogue.json");
+const catalogue = [...J("catalogue.json"), ...J("proposed_products.json")];
+const attach = J("attach_rates.json");
 const gstReg = J("gstin_registry.json");
 const udyamReg = J("udyam_registry.json");
 const specimens = J("kyc_specimens.json");
@@ -46,7 +47,7 @@ if (fs.existsSync(leadsPath)) {
     const needs = [...new Set((l.products_of_interest || "").split(";").map((p) => NEED_OF[p]).filter(Boolean))];
     const ctx = makeCtx({ seg: SEG[l.segment], empBand: empBandOf(+l.employee_count), siteBand: siteBandOf(+l.num_sites),
       cityTier: +l.city_tier, gstinActive: gstActive, fibreOk: l.drop_reason !== "Site not feasible for fibre", needs });
-    const rec = recommend(ctx, catalogue);
+    const rec = recommend(ctx, catalogue, attach);
     locked += rec.locked.length;
     for (const t of Object.values(rec.tiers)) {
       bundles++;
@@ -88,16 +89,17 @@ const reference = J("reference.json");
 const types = reference.businessTypes;
 {
   const { clean, rejected } = validateUpdates({ bizType: "pharmacy", empBand: "2-4", city: "Atlantis", pincode: "411 001",
-    gstin: "abc", needsAdd: ["cctv", "rocket"], tier: "premium", noGst: true }, reference);
+    gstin: "abc", needsAdd: ["cctv", "rocket"], tier: "gold", noGst: true }, reference);
   ok(clean.bizType === "Pharmacy" && clean.empBand === "2-4" && clean.pincode === "411001", "valid updates kept");
   ok(!clean.city && !clean.gstin && !clean.tier && rejected.includes("city") && rejected.includes("tier"), "invalid updates dropped");
+  ok(validateUpdates({ tier: "complete" }, reference).clean.tier === "premium", "old plan name \"complete\" maps to Premium");
   ok(JSON.stringify(clean.needsAdd) === '["cctv"]', "unknown need dropped");
   ok(validateReply({ reply: "hi", goTo: "hack" }).goTo === null, "unknown step ignored");
 }
 {
   ok(JSON.stringify(rupeeAmounts("Plan is ₹1,797/month, setup Rs 2500 or 999 rupees, १,४९९ रुपये")) === "[1797,2500,999,1499]", "rupee amounts parsed");
   const ctx = makeCtx({ seg: "micro", empBand: "2-4", siteBand: "1", cityTier: 2, gstinActive: false, needs: ["payments"] });
-  const rec = recommend(ctx, catalogue);
+  const rec = recommend(ctx, catalogue, attach);
   const allowed = allowedAmounts(catalogue, [rec]);
   ok(checkPrices(`Recommended is ₹${rec.tiers.recommended.monthly}/month`, allowed).ok, "real total passes price guard");
   ok(!checkPrices("Special offer: only ₹777 per month!", allowed).ok, "invented price blocked");
@@ -128,8 +130,8 @@ const types = reference.businessTypes;
     const seg = pick(segs);
     const needs = NEEDS.filter(() => rand() < 0.35).map((x) => x.id);
     const ctx = makeCtx({ seg, empBand: pick(EMP_BANDS).id, siteBand, cityTier: pick([1, 2]), gstinActive: rand() < 0.7, fibreOk: rand() < 0.9, needs, sites: count });
-    const rec = recommend(ctx, catalogue);
-    const tier = pick(["basic", "recommended", "complete"]);
+    const rec = recommend(ctx, catalogue, attach);
+    const tier = pick(["basic", "recommended", "premium"]);
     // owner edits: build-your-own sometimes, remove some, add eligible extras
     const custom = rand() < 0.3;
     const edits = { removed: custom ? rec.tiers.basic.items.slice(1).map((i) => i.id) : rec.tiers[tier].items.slice(1).filter(() => rand() < 0.2).map((i) => i.id), qty: {}, added: [] };
@@ -205,7 +207,7 @@ const types = reference.businessTypes;
   ok(makeCtx({ seg: "multi", empBand: "5-9", siteBand: "4-10", cityTier: 1, gstinActive: true, sites: 2 }).sites === 4, "exact branch count can't go below the band");
   // price guard accepts branch amounts
   const ctxM = makeCtx({ seg: "multi", empBand: "10-24", siteBand: "4-10", cityTier: 1, gstinActive: true, needs: ["cctv", "payments"], sites: 5 });
-  const rm = recommend(ctxM, catalogue);
+  const rm = recommend(ctxM, catalogue, attach);
   const pm = priceBranches(splitBase(rm.tiers.recommended, 5), fitBranches(null, 5), catalogue, ctxM);
   ok(checkPrices(`Each branch costs ₹${pm.branches[0].monthly} and the shared part is ₹${pm.shared.monthly}.`, allowedAmounts(catalogue, [rm, pm])).ok, "price guard allows branch costs");
 }
