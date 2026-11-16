@@ -449,3 +449,11 @@ td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
 .tag.gold { background: var(--gold-soft, #fbf1dc); color: var(--gold, #9a6a12); }
 .proposed { font-style: italic; color: var(--ink-3, #8a8090); }
 .tier-explain { margin-top: -4px; }
+
+/* demo: hide the "Behind the screen" notes */
+.stage.solo { grid-template-columns: minmax(0, 420px); }
+.notes-toggle { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font: inherit; font-size: .88rem; cursor: pointer; white-space: nowrap; }
+.notes-toggle:hover { color: var(--ink); border-color: var(--ink-2); }
+.notes-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+@media (max-width: 860px) { .notes-toggle { display: none; } }

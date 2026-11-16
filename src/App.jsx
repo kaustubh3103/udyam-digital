@@ -4,6 +4,7 @@ import Explainer from "./Explainer.jsx";
 import KycLab from "./KycLab.jsx";
 import SalesDesk from "./SalesDesk.jsx";
 import { store } from "./data.js";
+import { Eye, EyeOff } from "lucide-react";
 
 const VIEWS = [
   { id: "app", label: "Owner app" },
@@ -20,6 +21,9 @@ export default function App() {
   const [info, setInfo] = useState(null);
   const [partner, setPartner] = useState(null);
   const [callbacks, setCallbacks] = useState(() => store.get("udyam-digital:callbacks", []));
+  // "Behind the screen" notes beside the phone: hide them for a clean demo (remembered in this browser)
+  const [notes, setNotes] = useState(() => store.get("udyam-digital:notes", true));
+  useEffect(() => store.set("udyam-digital:notes", notes), [notes]);
   const [orders, setOrders] = useState(() => store.get("udyam-digital:orders", []));
 
   useEffect(() => {
@@ -39,18 +43,25 @@ export default function App() {
           <nav className="views" aria-label="Views">
             {VIEWS.map((v) => <a key={v.id} href={"#" + v.id} aria-current={view === v.id ? "page" : undefined}>{v.label}</a>)}
           </nav>
+          {view === "app" && (
+            <button type="button" className="notes-toggle" aria-pressed={notes} onClick={() => setNotes((x) => !x)}
+              title={notes ? "Hide the Behind the screen notes" : "Show the Behind the screen notes"}>
+              {notes ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+              {notes ? "Hide notes" : "Show notes"}
+            </button>
+          )}
         </div>
       </header>
       <main className={"page" + (view === "app" ? " customer" : "")}>
         {view === "app" && (
-          <div className="stage">
+          <div className={"stage" + (notes ? "" : " solo")}>
             <CustomerApp
               partner={partner}
               onStep={setInfo}
               onCallback={(c) => setCallbacks((x) => [...x, c])}
               onLeadEvent={(e) => e.kind === "order" ? setOrders((x) => [...x, e]) : e.kind === "orderUpdate" && setOrders((x) => x.map((o) => (o.id === e.id ? { ...o, monthly: e.monthly, branches: e.branches } : o)))}
             />
-            <Explainer info={info} />
+            {notes && <Explainer info={info} />}
           </div>
         )}
         {view === "kyc" && <KycLab />}
