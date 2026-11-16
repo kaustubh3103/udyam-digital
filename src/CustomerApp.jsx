@@ -606,6 +606,9 @@ function PlanScreen({ s, up, t, rec, tier, bundle, ctx, branches, businessName }
     : w.key === "suggest" ? t("whySuggest." + w.need)
     : w.key === "premium" ? t("whyPremium." + w.kind)
     : t("why." + w.key);
+  // each plan's price exactly as the price card would show it: with the owner's edits (on the current plan) and every branch's own choices
+  const tierPrice = (k) => k === tier && !custom ? bundle.monthly
+    : priceBranches(splitBase(editBundle(rec.tiers[k], NO_EDITS(), ctx, catalogue), ctx.sites), branches, catalogue, ctx).monthly;
   const TAG = { popular: ["info", "tagPopular"], suggest: ["warn", "tagSuggest"], premium: ["gold", "tagPremium"] };
   // goals the owner ticked that this plan doesn't cover (they removed the item); locked ones are listed separately
   const PRODUCTS_FOR = { payments: ["P19"], billing: ["P19"], whatsapp: ["P15"], sms: ["P14"], cctv: ["P23"], guestwifi: ["P22"], email: ["P16"], website: ["P18"], backup: ["P17"], security: ["P20"], uptime: ["P09"], calls: ["P12", "P13"], branches: ["P10"], machines: ["P24"], vehicles: ["P25"] };
@@ -627,7 +630,7 @@ function PlanScreen({ s, up, t, rec, tier, bundle, ctx, branches, businessName }
         {["basic", "recommended", "premium"].map((k) => (
           <button key={k} aria-pressed={tier === k && !custom} onClick={() => setTier(k)}>
             {k === "recommended" && <Star size={12} className="best" aria-hidden="true" />}
-            {t("tiers")[k]}<span className="num">{inr(rec.tiers[k].monthly)}</span>
+            {t("tiers")[k]}<span className="num">{inr(tierPrice(k))}</span>
           </button>
         ))}
       </div>
