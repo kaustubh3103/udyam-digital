@@ -654,7 +654,8 @@ function PlanScreen({ s, up, t, rec, tier, bundle, ctx, branches, businessName }
         </div>
         <span className="small muted">{t("gstExtra")} {t("priceLocked")}</span>
       </div>
-      {spendMid && <Note kind="info" icon={<IndianRupee size={16} />}>{t("vsToday", inr(spendMid), inr(bundle.monthly))}</Note>}
+      {/* only when it helps: the plan costs about the same as today (within 10%) or less */}
+      {spendMid && bundle.monthly <= spendMid * 1.1 && <Note kind="info" icon={<IndianRupee size={16} />}>{t("vsToday", inr(spendMid), inr(bundle.monthly))}</Note>}
       <button className="mic" onClick={() => speak(summary, s.lang)}><Volume2 size={16} /> {t("listen")}</button>
 
       <div className="group" style={{ gap: 8 }}>
