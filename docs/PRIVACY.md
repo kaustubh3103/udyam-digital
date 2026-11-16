@@ -36,7 +36,7 @@ How the Udyam Digital journey handles personal and business data, designed again
 ## 5. Security choices
 
 - **Masking everywhere:** GSTIN, Udyam and phone numbers are masked in the UI and must be masked in logs.
-- **No model sees raw identifiers.** The prototype uses no LLM for decisions. If a language model is added for voice or Q&A, inputs are stripped of GSTIN, phone, Aadhaar and names first, and the model can only select from pre-approved responses.
+- **The AI assistant (Saathi) sees the minimum, and decides nothing.** It receives only the form answers in coarse form (business type, staff and branch ranges, city, pincode, needs, GST status and trade name) and the plan. Never the phone number, GSTIN, Aadhaar, ID numbers, owner's name or any document. It runs through Accel's server, which holds the API key; the phone never calls the model directly. The model may only propose answers from fixed lists; code validates them, the rule engine sets every price, and any rupee amount in a reply that the rules did not produce blocks the reply. If an owner types an identifier into the chat, the server masks it before logging. The model provider is used under no-training, limited-retention terms; if Accel requires data in India, the model can be swapped because correctness sits in the rules.
 - **Deterministic decisions:** every KYC result comes from code (check digit, registry status, name match, document age), so it can be audited and explained to the customer.
 - **Quality check before upload:** blurry photos are caught on the phone, so fewer re-uploads and fewer copies of the same document.
 - **The raw 5,000-lead file is never shipped to the browser.** The app gets only aggregates, model coefficients and a small masked sample.
