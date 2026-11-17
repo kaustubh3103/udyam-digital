@@ -1,7 +1,7 @@
 # Udyam Digital: full project context (Team JIO)
 
 > **Instructions for the AI reading this file**
-> You are helping **Vatsal Raj Agarwal** understand his team's hackathon project so he can present it and answer the judges' questions. His teammate and team leader is **Kaustubh Aggarwal**.
+> You are helping **Team JIO** (Kaustubh Aggarwal, team leader, and Vatsal Raj Agarwal) understand and defend their hackathon project, so they can present it and answer the judges' questions.
 > - Explain in **simple, plain English** with small real-life examples (a bakery, a kirana shop, a clinic). Avoid jargon; when a technical word is needed, explain it in one line.
 > - Keep answers short first; go deeper only if he asks.
 > - Use only the facts in this file. If something isn't here, say so instead of guessing.
@@ -300,7 +300,140 @@ Applied to last quarter's 5,000 leads with **the same spending**:
 
 ---
 
-## 15. Glossary
+## 15. Deep dives (detailed answers to harder questions)
+
+### 15.1 How the rule engine decides each plan (`src/engine/advisor.js`)
+No AI. Same answers always give the same plan.
+1. **Answers → facts:** segment (from business type), staff (lower end of the band, so we never over-sell), branches, city tier, GST active?, fibre at pincode?, goals.
+2. **Internet line:** factory with GST and 10+ staff → leased line; no fibre at pincode → 5G AirFiber (a chain may get a leased line); micro shop → Fibre 100; office/clinic/chain → Fibre 300.
+3. **SIMs by staff:** 1→1, 2–4→2, 5–9→3, 10–24→5, 25+→8. Micro shops get the ₹299 SIM plan, others ₹599.
+4. **Goals → products and quantities:**
+   - payments / billing → billing tablet (Cloud POS), 1 per branch
+   - CCTV → cameras: 2 per branch for micro shops, 4 for others
+   - WhatsApp → WhatsApp Business API; SMS → SMS pack; website → website + domain; backup → cloud backup
+   - guest Wi-Fi → Secure Wi-Fi, 1 per branch
+   - email → 1 email ID per person; security → antivirus, 1 per person (at least 2)
+   - internet that never stops → backup 4G/5G line, 1 per branch
+   - business phone → 2 cloud telephony (IVR) lines, or a toll-free number if those aren't allowed
+   - connect branches → SD-WAN, 1 per branch; machines → 5 IoT sensors; vehicles → 3 fleet trackers
+5. **Eligibility check** on every item (5 rules); failures are shown **locked with the reason**.
+6. **Three plans:**
+   - Recommended adds "Businesses like yours" items (25%+ attach rate) and "Accel suggests": antivirus if 2+ staff or a billing tablet; backup line if POS, CCTV or uptime asked; email for offices, chains and factories; cloud backup for offices and factories; protection cover if they take digital payments.
+   - Premium adds the fastest line and biggest SIM plan they qualify for, plus backup line, static IP, firewall (if GST), Premium Care and Business Protection Cover.
+7. **Price:** catalogue price × quantity; setup = one-time fees added; contract = longest minimum; install time = slowest item. A **second checker** (`verifyBundle`) re-checks the finished plan.
+- **Branches:** each branch is resized by size (small/regular/large) and pincode (AirFiber if no fibre); shared items such as SIMs are bought once.
+- **Quantities are sensible starting points we set**, not site measurements. In production the installer confirms counts at the site, and the owner can change any count before billing.
+- **Owners never choose specs.** They choose goals and answer size and location; every item shows a plain reason.
+
+### 15.2 How Saathi gets its context (no training, no fine-tuning)
+With **every message**, the app sends three parts:
+1. **RULES** (fixed system prompt in `src/ai/assistant.js`): who Saathi is; never invent prices, discounts or products; reply in the owner's language; reply in a fixed JSON format `{message, updates, goTo, showPlan, callback}`.
+2. **CONTEXT** (rebuilt fresh by `buildContext` each message): allowed values (business types, cities, need IDs, bands); facts (one bill, prices exclude GST, KYC process, what needs GST); the catalogue with entry prices; the owner's answers; what's still missing; the current plan from the rule engine item by item; **all three plans with each item's reason**; branch-by-branch costs; locked items; the booked order after sign-up.
+3. The **recent chat**.
+- The model remembers nothing between messages, so it must get the facts each time, and the plan keeps changing.
+- **Never sent:** phone number, GSTIN, Aadhaar, ID numbers, owner's name, documents.
+
+### 15.3 How we stop hallucinations (5 layers)
+1. **Grounding:** real facts sent every time, with "quote only these prices".
+2. **AI decides nothing important:** products, prices and lookups are code.
+3. **Fixed JSON + validator:** every suggested form value must be on an allowed list (e.g. city "Atlantis" or plan "Gold" → rejected).
+4. **Price guard:** every ₹ amount in a reply must match an amount the rules produced; otherwise the reply is blocked and a safe built-in answer is shown (a fake "₹777 offer" was blocked in tests).
+5. **Fallback:** if the AI is unavailable, built-in answers.
+- Honest limit: wording can still be imperfect, but a wrong price, product or form value can't reach the owner. "Talk to a person" is always one tap away.
+
+### 15.4 Cost of sending context every message
+- Measured prompt: rules about 4,100 characters + context about 7,600 = **about 3,000 tokens**, plus a few hundred for chat. Reply about 250 tokens.
+- Claude Haiku 5.5 pricing (Anthropic, Nov 2026): **$0.10 per million input tokens, $0.50 per million output tokens** for prompts under 100K tokens.
+- One message ≈ **$0.0005 (about 4 paise)**; a 5-message chat ≈ **20 paise**; 50,000 messages a day ≈ **$24/day**. Compare ₹15,053 to win a customer.
+- Cheaper still with **prompt caching** (cache reads cost 10% of the input price; the rules and catalogue are the same for everyone), built-in answers for common questions, and most owners never opening the chat.
+
+### 15.5 Saathi in production (system design)
+Owner's phone → **Saathi service** on Accel's server (API gateway with login check and rate limit; context builder loading the session; prompt assembly; secret API key) → **Claude API (Haiku)**, replying in fixed JSON with streaming → **validator** → **rule engine** → **price guard** → back to the phone.
+- **Session store** (e.g. Redis or a database) so Saathi remembers across devices; order database/CRM for post-booking questions; masked logs with limited retention.
+- **Failures:** timeout (e.g. 8 s) → built-in answers; blocked reply → safe pre-written answer; rate limit → friendly wait message; off-topic → polite redirect; human wanted → "Talk to a person" to the callback queue.
+- **Monitoring:** reply time, fallback rate, blocked replies, common questions, drop-off after chatting; weekly review of masked chats; automated tests before every release.
+- **Later:** WhatsApp Business API channel, voice (speech-to-text / text-to-speech), partner mode, all using the same service and guards.
+- **Today's prototype:** in the claude.ai link Saathi uses claude.ai's built-in AI ("sample" capability); `api/chat.js` is the small server route for production. On a plain static host like GitHub Pages only built-in answers work.
+
+### 15.6 The lead score in detail
+- **Model:** logistic regression, scikit-learn, C = 0.5 (light regularisation), trained on all 5,000 leads; target = activated (368 yes).
+- **9 facts (one-hot encoded):** segment, lead source, has GST, has Udyam, current internet, city tier, staff band, branch band, already an Accel customer. No personal details.
+- **Biggest weights:** referral +0.86, has GST +0.63, inbound call +0.33, multi-site +0.29, professional office +0.22; WhatsApp campaign −0.84, no GST −0.65, website form −0.52, micro shop −0.51, mobile hotspot −0.22. Base (intercept) −2.90.
+- **Scoring (`score.js`):** base + weights of the lead's facts → logistic curve → percentage; top 3 positive facts (above 0.15) become the "why" chips.
+- **Examples:** a referral clinic with GST in a Tier-1 city, already an Accel customer → about 36. A micro shop from a WhatsApp ad, no GST, mobile hotspot, Tier 2 → under 1.
+- **AUC 0.72**, from 5-fold cross-validation (if you pick one buyer and one non-buyer, the buyer ranks higher 72% of the time).
+- **Scores look low** (top about 40) because only 7.4% of leads ever buy; the ranking is what matters.
+- **Queue selection:** leads that dropped for app-fixable reasons, sorted by score, top 90 plus 60 more spread out (every 25th), so 150; plus live "Talk to a person" requests at the top.
+
+### 15.7 Impact maths (slide 8)
+- Today's spend = 368 × ₹15,053 ≈ **₹55.4 lakh a quarter**.
+- Win back 50% of drops from no visit (827), confusing/slow quote (385) and installation problems (167), and 60% of document drops (273); everything else unchanged.
+- Stage pass rates today → with us: contacted 68% → 68%; needs assessed 58% → 70%; quote accepted 44% → 53%; KYC complete 68% → 87%; activated 63% → 77%.
+- 5,000 × those rates ≈ **854 customers** (2.3×). ₹55.4 lakh ÷ 854 ≈ **₹6,484 per customer**. Extra revenue = 486 × ₹6,900 × 12 ≈ **₹4.0 crore a year**. Script: `numbers.mjs`.
+- **368 = activated, paying customers**; 3,406 were contacted. Funnel: 5,000 → 3,406 contacted → 1,974 needs assessed → 861 quote accepted → 588 KYC complete → 368 activated.
+
+### 15.8 Segments: why micro costs more, and how we target offices
+- Micro: Accel spends **less per lead** (₹812 vs ₹1,184 for offices), but only **4.1%** convert vs 11.1%. About 25 leads per customer vs 9, so ₹20,007 vs ₹10,694.
+- Why micro converts poorly: 47% have no GST (1.6% conversion without GST vs 6.3% with); "owner had no time for a visit" (12%); "price too high" (10%); "unreachable after 3 attempts" (16%).
+- **Targeting professional offices first** is a launch strategy, not a separate app: launch in 3 Tier-1 cities for the first 3 months; marketing through referrals (the best-converting source) and professional groups such as doctors' and CA associations (our suggestion); the lead score ranks offices higher (+0.22 vs −0.51 for micro); the app has office tiles (dental clinic, CA firm, coaching centre) and an office bundle; their KYC is a lookup.
+- What offices get: Basic = Fibre 300, 3 SIMs, 5 email IDs, cloud backup, 5 antivirus (₹4,915). Recommended adds what activated offices bought: email 100%, antivirus 49%, cloud backup 41%, cloud telephony 28%, static IP 26%.
+- Why salespeople for chains and factories only: their ₹20,000–31,000 monthly bills pay back a visit within a month, and their setups are complex.
+
+### 15.9 GST: what's public, and how we check the owner is real
+- A GSTIN is public information. The government GST portal (Search Taxpayer) shows, without login: GSTIN, legal name, trade name, registration date, constitution, status, taxpayer type and offices.
+- Companies automate this through a **GST Suvidha Provider (GSP)** authorised by GSTN. Public APIs return basic taxpayer details without consent. We use only that public data, never tax returns.
+- **Typing someone else's GSTIN doesn't work:** ownership is proven at signing. DigiLocker / Aadhaar e-sign gives the person's verified name, which must match the proprietor in the GST record (our rule "signer is not the proprietor" → fail). LLPs and companies get a signer review. Production can add an OTP to the GST-registered mobile (GSP taxpayer OTP). Installation always happens at the registered address.
+- In the prototype DigiLocker and e-sign are mocked; the matching rule is real and tested on the 12 samples.
+
+### 15.10 KYC pipeline in detail
+- **Tools:** Tesseract OCR (free, open-source) via Python, Pillow and numpy; run once in advance on the 12 samples. All checks run live in `src/engine/kyc.js`.
+- **Steps per image:** sharpness (Laplacian variance, blurry if 40 or lower; clear samples about 1,450–2,170, K04 scored 9) → deskew (try −10° to +10° in 0.5° steps, fix if 1.5° or more; K02 was 7°) → OCR → readable check (at least 120 letters/digits) → extract fields with text patterns.
+- **OCR repair:** a GSTIN has fixed digit and letter positions; O↔0, I↔1, S↔5, B↔8 are fixed only if the result passes the check digit and exists in the registry (K03, K07, K08, K10).
+- **Rules:** check digit; registry status Active; legal name 92%+ similar; address 95%+ (review); Udyam in registry or found by name + city; bill within 90 days of 15 Jul 2026; ID not expired; proprietor must match the signer; LLP/company signer → review.
+- **Results:** K01 cancelled GST (action); K02 tilted, fixed (verified); K03 OCR fix (verified); K04 blurry (action); K05 LLP signer (review); K06 check digit fails (action); K07 name changed (action); K08 OCR fix (verified); K09 clean (verified); K10 LLP signer + OCR fixes (review); K11 bill 257 days old (action); K12 verified (Udyam activity differs, info only).
+
+### 15.11 How we tested (simple)
+- **One command, `npm test`**, under a minute.
+- **15,000 plans:** all 5,000 case leads × 3 plans. A **separate checker** tests every item against the catalogue rules: 0 breaks. The same checker found **53 breaks** in bundles Accel actually sold (24 city tier, 12 GST, 9 dependency, 8 staff).
+- **4,000 random custom plans:** the computer plays an owner (remove, add, change counts, branches, pincodes): 0 breaks, and branch costs + shared items always equal the bill.
+- **KYC:** 12 samples, all 7 planted problems caught, no false alarms.
+- **AI guards:** fake replies (₹777 offer, invalid values) blocked or rejected; AI-off fallback works.
+- **15 advisor scenarios** like the judges'; 15/15 typed business words classified correctly.
+- **Playwright** browser tests click through the whole journey, including Saathi.
+- Not yet: real-user testing (first step of the pilot).
+
+### 15.12 How we used Claude (be open about it)
+- **Development:** Claude Code, an agentic coding assistant working in our Git repo. It wrote and refactored code, ran the Python data pipeline, ran the test suite after every change, and drove Playwright, all in a build → test → review loop with tracked commits.
+- **In the product:** the Claude API (Haiku) behind Saathi, wrapped in a JSON schema, validator, rule engine and price guard.
+- **Results are not AI-generated:** they come from scripts on the case data that anyone can rerun. Decisions and assumptions (segments, rules, 25% threshold, impact assumptions, safety design) were the team's.
+- **Don't claim:** that we trained or fine-tuned an AI model (the only model trained is the logistic regression), or that "a Claude skill tested the app".
+
+### 15.13 All 27 services
+- **From the case catalogue (25):**
+  - Connectivity (11): Biz Fibre 100 / 300 / 1G (₹999 / ₹1,499 / ₹3,999), 5G AirFiber 100 (₹899), Leased Line 20 / 100 (₹8,000 / ₹25,000), Business Postpaid 299 / 599, Backup 4G/5G Failover (₹499), Managed SD-WAN (₹2,500), Static IP (₹200).
+  - Communication (4): Cloud Telephony / IVR (₹1,000 per channel), Toll-free (₹1,500), Business SMS 10k (₹1,500), WhatsApp Business API (₹999).
+  - Cloud (4): Email & Office Suite (₹125/user), Cloud Backup 1 TB (₹499), Website + Domain (₹299), Cloud POS & Billing (₹599/counter).
+  - Security (3): Endpoint Security (₹99/device), Managed Firewall (₹1,999), Secure Wi-Fi with Guest Network (₹399).
+  - IoT (3): Cloud CCTV (₹199/camera), Machine Monitoring (₹149/device), Fleet Tracker (₹199/vehicle).
+- **Proposed by Team JIO (2):** Premium Care (₹999/month) and Business Protection Cover (₹299/month), labelled "proposed price", in Premium only, with no eligibility limits.
+- **Leased line** = a private, guaranteed internet line with an uptime promise (99.5% for LL20, 99.9% for LL100), about 21 days to install.
+- **Secure Wi-Fi locked?** Its catalogue rule needs a fibre or AirFiber line in the plan (a leased line doesn't count). It's a one-line data change if Accel changes the rule.
+
+### 15.14 Smaller screen details
+- **"What do you use today?"** (optional): current internet feeds the lead score (e.g. leased line +0.21, phone hotspot −0.22) and Saathi's context; monthly spend (a range) powers the "one bill" note, which appears **only when our plan costs about the same as today or less** (within 10%). It doesn't change the products.
+- **Hide notes** button (top right on a laptop) hides the "Behind the screen" panel for a clean demo; the choice is remembered in that browser.
+- **The plan switch** shows each plan's price exactly as the price card would, including branch choices.
+- **Talk to a person** on every screen puts the owner straight into the sales callback queue, tagged "New from app".
+- **Assisted sign-up:** "Sharma Telecom · PTR-1042" (partner) and "Field sales · Priya N." are example names; the order is credited to the partner code.
+
+### 15.15 Links and documents
+- App (public): https://claude.ai/artifact/VaRpyDYHMyfuERiz7Gi66N
+- Code: github.com/kaustubh3103/udyam-digital (team: @kaustubh3103, @VatsalRaj05). GitHub Pages deploy needs Pages enabled (Settings → Pages → Source: GitHub Actions).
+- Deliverables in the repo: `docs/Team_JIO_Udyam_Digital.pptx` (8 slides), `docs/PRIVACY.md` (1-page privacy note), this file.
+
+---
+
+## 16. Glossary
 
 - **MSME / SMB:** micro, small and medium enterprises / small and medium businesses.
 - **GSTIN:** 15-character GST number; first 2 digits = state code; last character = check digit.
